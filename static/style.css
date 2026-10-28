@@ -1,0 +1,75 @@
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --danger: #dc2626;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+header { background: linear-gradient(135deg, #0f172a, #1e3a8a 60%, #2563eb); color: #fff; padding: 30px 16px 46px; text-align: center; }
+header h1 { margin: 0; font-size: 1.9rem; }
+.subtitle { margin: 8px auto 0; opacity: 0.85; max-width: 680px; }
+
+main { max-width: 1150px; margin: -28px auto 40px; padding: 0 16px; display: grid; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.04); min-width: 0; }
+.muted { color: var(--muted); font-weight: 400; }
+.error { color: var(--danger); margin: 8px 0 0; }
+.banner { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; border-radius: 10px; padding: 12px 16px; }
+code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; }
+
+/* Ask */
+.ask-form { display: flex; gap: 8px; }
+input, textarea, button { font: inherit; }
+#question { flex: 1; padding: 13px 15px; border: 1px solid var(--border); border-radius: 10px; font-size: 1.05rem; }
+#question:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button { padding: 10px 18px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+button.secondary { background: #fff; color: var(--accent); }
+button.link { background: none; border: none; color: var(--accent); padding: 2px 6px; font-weight: 600; font-size: .85rem; }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chip { background: #eff6ff; color: #1e40af; border: 1px solid #dbeafe; border-radius: 99px; padding: 6px 12px; font-weight: 500; font-size: .88rem; }
+.chip:hover { background: #dbeafe; }
+
+.answer { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px; }
+.answer-text { font-size: 1.1rem; font-weight: 600; margin: 0 0 14px; line-height: 1.5; }
+.answer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.answer-grid:has(#answer-chart-box[hidden]) { grid-template-columns: 1fr; }
+.sql-details { margin-top: 14px; }
+.sql-details summary { cursor: pointer; font-weight: 600; }
+#sql-editor { width: 100%; margin-top: 8px; font: 13.5px/1.5 Consolas, "Cascadia Mono", monospace; background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; border: none; resize: vertical; }
+.sql-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+
+/* Tables */
+.table-wrap { overflow: auto; max-height: 340px; }
+table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; position: sticky; top: 0; background: var(--panel); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Dashboard */
+.section-title { margin: 10px 0 0; font-size: 1.15rem; }
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; position: relative; padding-top: 22px; }
+.kpi-title { position: absolute; top: 0; left: 2px; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.kpi .label { color: var(--muted); font-size: .82rem; }
+.kpi .value { font-size: 1.45rem; font-weight: 700; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.panel.wide { grid-column: 1 / -1; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; }
+.panel h3 { margin: 0 0 10px; font-size: 1rem; }
+.chart-box { position: relative; height: 260px; }
+pre.sql { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; font-size: 12.5px; overflow: auto; margin: 12px 0 0; }
+.footnote { font-size: .85rem; text-align: center; }
+
+@media (max-width: 800px) {
+  .answer-grid, .grid { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .ask-form { flex-direction: column; }
+}
