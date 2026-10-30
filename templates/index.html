@@ -4,44 +4,111 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ask Your Database</title>
+  <script>
+    // Theme before first paint: ?theme=light|dark, then the saved choice, else the OS setting.
+    (function () {
+      var t = new URLSearchParams(location.search).get("theme");
+      if (t !== "light" && t !== "dark") { try { t = localStorage.getItem("theme"); } catch (e) { t = null; } }
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
 </head>
 <body>
-  <header>
-    <h1>Ask Your Database</h1>
-    <p class="subtitle">Ask questions about your sales data in plain language. AI writes the SQL; the database stays read-only.</p>
+  <div class="bg-glow" aria-hidden="true"><span class="glow glow-a"></span><span class="glow glow-b"></span></div>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="Ask Your Database home">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+        </span>
+        <span class="brand-name">Ask Your Database</span>
+      </a>
+      <nav class="nav" aria-label="Sections">
+        <a href="#ask">Ask</a>
+        <a href="#dashboard">Dashboard</a>
+      </nav>
+      <div class="topbar-actions">
+        <span class="badge badge-success" title="Every query runs on a read-only connection">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <span class="badge-text">Read-only</span>
+        </span>
+        <button type="button" id="theme-toggle" class="icon-btn" aria-label="Switch theme" title="Switch theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        </button>
+      </div>
+    </div>
   </header>
 
-  <main>
+  <main id="top">
+    <section class="hero">
+      <span class="eyebrow"><span class="dot"></span>Natural language → SQL · Claude</span>
+      <h1>Ask your sales data <span class="grad">anything</span>.</h1>
+      <p class="subtitle">Type a question in plain language. AI writes the SQL, the database stays read-only, and you get an answer, a table and a chart.</p>
+    </section>
+
     {% if not ai_ready %}
-    <div class="banner" role="alert">AI is off: add <code>ANTHROPIC_API_KEY</code> to your <code>.env</code> file and restart. The dashboard still works.</div>
+    <div class="banner" role="alert">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      <span>AI is off: add <code>ANTHROPIC_API_KEY</code> to your <code>.env</code> file and restart. The dashboard still works.</span>
+    </div>
     {% endif %}
 
     <!-- Ask -->
-    <section class="panel ask-panel">
+    <section class="card ask-panel" id="ask">
       <form id="ask-form" class="ask-form">
-        <input id="question" placeholder="e.g. Which products sold best last month?" maxlength="500" autocomplete="off" required>
-        <button type="submit" id="ask-btn">Ask</button>
+        <div class="input-wrap">
+          <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg>
+          <input id="question" placeholder="e.g. Which products sold best last month?" maxlength="500" autocomplete="off" required aria-label="Your question">
+        </div>
+        <button type="submit" id="ask-btn" class="btn btn-primary">Ask</button>
       </form>
+      <div class="examples-label">Try an example</div>
       <div class="examples" id="examples">
         {% for q in examples %}<button type="button" class="chip">{{ q }}</button>{% endfor %}
       </div>
 
+      <div id="thinking" class="thinking" hidden aria-hidden="true">
+        <div class="shimmer-line w-70"></div>
+        <div class="shimmer-line w-45"></div>
+        <div class="thinking-grid"><div class="shimmer-block"></div><div class="shimmer-block"></div></div>
+      </div>
+
       <div id="answer" class="answer" hidden>
-        <p id="answer-text" class="answer-text"></p>
+        <div class="answer-head">
+          <span class="ai-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/></svg>
+          </span>
+          <p id="answer-text" class="answer-text"></p>
+        </div>
         <div class="answer-grid">
-          <div class="chart-box" id="answer-chart-box"><canvas id="answer-chart"></canvas></div>
-          <div class="table-wrap" id="answer-table"></div>
+          <div class="chart-box inset" id="answer-chart-box"><canvas id="answer-chart"></canvas></div>
+          <div class="table-wrap inset" id="answer-table"></div>
         </div>
         <details class="sql-details" open>
-          <summary>SQL query <span id="sql-meta" class="muted"></span></summary>
+          <summary>
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            SQL query <span id="sql-meta" class="muted mono-meta"></span>
+          </summary>
           <p id="sql-explanation" class="muted"></p>
-          <textarea id="sql-editor" spellcheck="false" rows="8"></textarea>
+          <div class="editor">
+            <div class="editor-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span>query.sql</span><span class="editor-tag">editable · read-only DB</span></div>
+            <textarea id="sql-editor" spellcheck="false" rows="8" aria-label="SQL query"></textarea>
+          </div>
           <div class="sql-actions">
-            <button type="button" id="run-sql" class="secondary">Run edited SQL</button>
+            <button type="button" id="run-sql" class="btn btn-secondary">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 4 14 8-14 8V4Z"/></svg>
+              Run edited SQL
+            </button>
             <span id="sql-error" class="error"></span>
           </div>
         </details>
@@ -50,13 +117,18 @@
     </section>
 
     <!-- Dashboard -->
-    <h2 class="section-title">Dashboard <span class="muted">· hand-written SQL, click "SQL" on any card to see it</span></h2>
-    <section class="kpis" id="kpis"></section>
+    <div class="section-head" id="dashboard">
+      <h2 class="section-title">Dashboard</h2>
+      <p class="muted">Hand-written SQL. Click <strong>SQL</strong> on any card to see the query behind it.</p>
+    </div>
+    <section class="kpis" id="kpis">
+      <div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div>
+    </section>
     <section class="grid">
-      <div class="panel wide" data-key="monthly"><div class="panel-head"><h3></h3><button class="link sql-toggle">SQL</button></div><div class="chart-box"><canvas id="monthly-chart"></canvas></div><pre class="sql" hidden></pre></div>
-      <div class="panel" data-key="categories"><div class="panel-head"><h3></h3><button class="link sql-toggle">SQL</button></div><div class="chart-box"><canvas id="categories-chart"></canvas></div><pre class="sql" hidden></pre></div>
-      <div class="panel" data-key="top_products"><div class="panel-head"><h3></h3><button class="link sql-toggle">SQL</button></div><div class="table-wrap"></div><pre class="sql" hidden></pre></div>
-      <div class="panel" data-key="cities"><div class="panel-head"><h3></h3><button class="link sql-toggle">SQL</button></div><div class="chart-box"><canvas id="cities-chart"></canvas></div><pre class="sql" hidden></pre></div>
+      <div class="card panel wide" data-key="monthly"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="chart-box"><canvas id="monthly-chart"></canvas></div><pre class="sql" hidden></pre></div>
+      <div class="card panel" data-key="categories"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="chart-box"><canvas id="categories-chart"></canvas></div><pre class="sql" hidden></pre></div>
+      <div class="card panel" data-key="top_products"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="table-wrap"></div><pre class="sql" hidden></pre></div>
+      <div class="card panel wide" data-key="cities"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="chart-box"><canvas id="cities-chart"></canvas></div><pre class="sql" hidden></pre></div>
     </section>
     <p class="muted footnote">Sample data: a fictional online shop in Bulgaria (800 customers, 3,140 orders, May 2025 – October 2026).</p>
   </main>

@@ -55,6 +55,16 @@ Every card has an **SQL** button that shows the query behind it:
 - **Top 5 products:** the `RANK()` window function
 - **Revenue by city**
 
+## Screenshots
+
+The interface has a dark and a light theme (toggle in the top bar, remembered in the browser; `?theme=light` or `?theme=dark` forces one), smooth GSAP animations and a layout that works down to phone width.
+
+| Answer (dark) | Answer (light) | Phone |
+|---|---|---|
+| ![Answer, dark theme](examples/screenshot-answer.png) | ![Answer, light theme](examples/screenshot-answer-light.png) | ![Phone, 390 px](examples/screenshot-mobile.png) |
+
+Light dashboard: [`examples/screenshot-dashboard-light.png`](examples/screenshot-dashboard-light.png).
+
 ## The sample database
 
 `seed_db.py` creates `shop.db`, a fictional online shop in Bulgaria with repeatable random data:
@@ -87,7 +97,7 @@ The dashboard works without an API key; only the AI questions need one.
 
 ## Tech stack
 
-Python, Flask, SQLite (CTEs, window functions, an authorizer and read-only mode), vanilla JavaScript, Chart.js, and the Claude API (Structured Outputs, prompt caching).
+Python, Flask, SQLite (CTEs, window functions, an authorizer and read-only mode), vanilla JavaScript, Chart.js, GSAP, and the Claude API (Structured Outputs, prompt caching).
 
 ## Tests
 
