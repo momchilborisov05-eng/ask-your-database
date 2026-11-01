@@ -1,3 +1,8 @@
 anthropic>=2.2.0
 flask>=3.0
 python-dotenv>=1.0
+# Production server (Linux; on Windows use `python app.py`)
+gunicorn>=23.0; sys_platform != "win32"
+# Azure SQL / SQL Server with Microsoft Entra ID sign-in (managed identity, no password)
+mssql-python>=1.16
+azure-identity>=1.19
