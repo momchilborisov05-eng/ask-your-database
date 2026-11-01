@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 *.db
 upwork-portfolio-text.md
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.db-shm
+*.db-wal

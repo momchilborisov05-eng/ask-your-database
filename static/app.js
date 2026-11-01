@@ -12,8 +12,14 @@ if (scrollMotion) gsap.registerPlugin(ScrollTrigger);
 
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed");
+  if (response.status === 401) {
+    // The platform's sign-in page; it comes back here afterwards.
+    location.href = "/.auth/login/aad?post_login_redirect_uri=/";
+    throw new Error("Sign in required.");
+  }
+  let data;
+  try { data = await response.json(); } catch { data = {}; }
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
 }
 
@@ -255,11 +261,14 @@ async function ask(question) {
     if (motion) gsap.fromTo("#ask-error", { x: -6 }, { x: 0, duration: 0.6, ease: "elastic.out(1, 0.3)" });
   } finally {
     setBusy(false);
+    loadHistory();
+    loadMe();
   }
 }
 
 function showAnswer(data) {
   $("answer").hidden = false;
+  setExport(data.id);
   $("answer-text").textContent = data.answer;
   $("sql-explanation").textContent = data.explanation;
   $("sql-editor").value = data.sql;
@@ -312,6 +321,7 @@ $("run-sql").addEventListener("click", async () => {
   try {
     const data = await api("/api/query", { method: "POST", body: JSON.stringify({ sql: $("sql-editor").value }) });
     $("answer-text").textContent = "Result of your edited query:";
+    setExport(data.id);
     $("sql-meta").textContent = `· ${data.rows.length}${data.truncated ? "+" : ""} rows · ${data.elapsed_ms} ms · edited`;
     showResult(data.columns, data.rows, null);
     if (motion) pulse(".ask-panel");
@@ -320,7 +330,87 @@ $("run-sql").addEventListener("click", async () => {
     if (motion) gsap.fromTo(".editor", { x: -6 }, { x: 0, duration: 0.6, ease: "elastic.out(1, 0.3)" });
   } finally {
     btn.disabled = false;
+    loadHistory();
   }
+});
+
+function setExport(id) {
+  const link = $("export-csv");
+  link.hidden = !id;
+  if (id) link.href = `/api/questions/${id}/export.csv`;
+}
+
+// ---------- Account and history ----------
+
+let me = null;
+let showAll = false;
+
+async function loadMe() {
+  try {
+    me = await api("/api/me");
+  } catch {
+    return;
+  }
+  const user = $("user");
+  user.hidden = false;
+  user.textContent = `${me.auth === "none" ? "local" : me.name} · $${me.spent_today_usd.toFixed(2)} / $${me.daily_budget_usd.toFixed(2)} today`;
+  user.title = me.database;
+  $("audit-toggle").hidden = !me.admin || me.auth === "none";
+  if (!me.database.startsWith("SQLite")) $("footnote").textContent = `Connected to ${me.database}.`;
+}
+
+const STATUS = { ok: "✓", error: "error", blocked: "blocked" };
+
+async function loadHistory() {
+  let rows;
+  try {
+    rows = await api(`/api/history${showAll ? "?all=1" : ""}`);
+  } catch (err) {
+    $("history-table").replaceChildren(el("p", "error", err.message));
+    return;
+  }
+  $("history-title").textContent = showAll ? "Audit log: everyone's questions" : "Your recent questions";
+  if (!rows.length) {
+    $("history-table").replaceChildren(el("p", "muted", "No questions yet."));
+    return;
+  }
+  const table = el("table");
+  const head = el("tr");
+  const columns = ["When", ...(showAll ? ["Who"] : []), "Question", "Result", "Rows", "Cost", ""];
+  columns.forEach((c) => head.append(el("th", c === "Rows" || c === "Cost" ? "num" : "", c)));
+  const thead = el("thead");
+  thead.append(head);
+  const body = el("tbody");
+  for (const r of rows) {
+    const tr = el("tr");
+    tr.append(el("td", "mono", new Date(`${r.created_at.replace(" ", "T")}Z`).toLocaleString()));
+    if (showAll) tr.append(el("td", "", r.owner_name));
+    const q = el("td", "", r.kind === "sql" ? "(edited SQL)" : r.question);
+    q.title = r.sql_text || r.error || "";
+    tr.append(q);
+    const status = el("td", r.status === "ok" ? "" : "error", STATUS[r.status] || r.status);
+    if (r.error) status.title = r.error;
+    tr.append(status);
+    tr.append(el("td", "num", r.row_count ?? "–"));
+    tr.append(el("td", "num", r.cost_usd == null ? "–" : `$${Number(r.cost_usd).toFixed(4)}`));
+    const actions = el("td");
+    if (r.status === "ok" && r.sql_text) {
+      const link = el("a", "sql-toggle", "CSV");
+      link.href = `/api/questions/${r.id}/export.csv`;
+      link.setAttribute("download", "");
+      actions.append(link);
+    }
+    tr.append(actions);
+    body.append(tr);
+  }
+  table.append(thead, body);
+  $("history-table").replaceChildren(table);
+}
+
+$("audit-toggle").addEventListener("click", () => {
+  showAll = !showAll;
+  $("audit-toggle").textContent = showAll ? "Show only mine" : "Show everyone's (audit log)";
+  loadHistory();
 });
 
 // ---------- Dashboard ----------
@@ -331,6 +421,12 @@ async function loadDashboard() {
     d = await api("/api/dashboard");
   } catch (err) {
     $("kpis").replaceChildren(el("p", "error", `Could not load the dashboard: ${err.message}`));
+    return;
+  }
+  if (d.available === false) {
+    // Not the sample shop: the hand-written dashboard doesn't apply to this database.
+    for (const node of [$("dashboard"), $("kpis"), document.querySelector(".grid")]) node.hidden = true;
+    document.querySelector('a[href="#dashboard"]').hidden = true;
     return;
   }
 
@@ -408,4 +504,6 @@ function intro() {
 }
 
 intro();
+loadMe();
+loadHistory();
 loadDashboard();

@@ -1,0 +1,26 @@
+[project]
+name = "ask-your-database"
+version = "2.0.0"
+description = "Ask questions about a SQL database in plain language: Claude writes the SQL, it runs read-only."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+# B905: zip() over a row and its column names always has equal lengths.
+ignore = ["B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# The sample catalog and test queries read better on one line.
+"seed_db.py" = ["E501"]
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "assistant", "dashboard", "demo", "safe_sql", "seed_db", "store", "test_app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

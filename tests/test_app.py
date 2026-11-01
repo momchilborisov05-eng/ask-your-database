@@ -20,13 +20,18 @@ sys.path.insert(0, str(ROOT))
 os.environ["ANTHROPIC_API_KEY"] = os.environ.get("ANTHROPIC_API_KEY") or "test-key"  # never used: the client is fake
 
 import seed_db  # noqa: E402
-from app import create_app  # noqa: E402
+from app import Settings, create_app  # noqa: E402
 from dashboard import QUERIES, load_dashboard  # noqa: E402
-from safe_sql import UnsafeQuery, run_query  # noqa: E402
+from safe_sql import SqliteSource, UnsafeQuery  # noqa: E402
 
 TMP = Path(tempfile.mkdtemp())
 DB = TMP / "shop.db"
 seed_db.build(DB)
+SOURCE = SqliteSource(DB)
+
+
+def run_query(_db, sql, **limits):
+    return SOURCE.run(sql, **limits)
 
 
 def tearDownModule():
@@ -52,6 +57,7 @@ class FakeClaude:
             stop_reason="end_turn",
             content=[NS(type="text", text=json.dumps(self.answers.pop(0)))],
             usage=NS(input_tokens=50, output_tokens=20, cache_read_input_tokens=1000, cache_creation_input_tokens=0),
+            model="claude-opus-5-5",
         )
 
 
@@ -101,13 +107,13 @@ class SafetyTest(unittest.TestCase):
 
 class DashboardTest(unittest.TestCase):
     def test_all_queries_run(self):
-        data = load_dashboard(DB)
+        data = load_dashboard(SOURCE)
         self.assertEqual(set(data), set(QUERIES))
         self.assertEqual(len(data["top_products"]["rows"]), 5)
         self.assertEqual(len(data["categories"]["rows"]), 7)
 
     def test_monthly_growth_uses_previous_month(self):
-        rows = load_dashboard(DB)["monthly"]["rows"]
+        rows = load_dashboard(SOURCE)["monthly"]["rows"]
         self.assertIsNone(rows[0][2])  # the first month has no previous month
         expected = round(100 * (rows[1][1] - rows[0][1]) / rows[0][1], 1)
         self.assertEqual(rows[1][2], expected)
@@ -116,7 +122,8 @@ class DashboardTest(unittest.TestCase):
 class AskTest(unittest.TestCase):
     def make_client(self, answers):
         self.fake = FakeClaude(answers)
-        app = create_app(DB, ai_client_factory=lambda: self.fake)
+        settings = Settings(database_url=f"sqlite:///{DB}", store_url=f"sqlite:///{TMP / 'audit.db'}")
+        app = create_app(settings, ai_client_factory=lambda: self.fake)
         app.testing = True
         return app.test_client()
 
