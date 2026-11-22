@@ -20,7 +20,15 @@ ignore = ["B905"]
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "assistant", "dashboard", "demo", "safe_sql", "seed_db", "store", "test_app"]
+known-first-party = ["app", "assistant", "dashboard", "demo", "safe_sql", "seed_db", "sqlkit", "store", "test_app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app", "assistant", "dashboard", "demo", "safe_sql", "store", "sqlkit"]
+omit = ["tests/*", "scripts/*"]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = false

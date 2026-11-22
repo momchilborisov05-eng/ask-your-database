@@ -100,8 +100,13 @@ class SafetyTest(unittest.TestCase):
 
     def test_slow_query_is_stopped(self):
         slow = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT COUNT(*) FROM n"
+        # The static check refuses it up front ...
         with self.assertRaises(UnsafeQuery) as ctx:
             run_query(DB, slow, timeout_s=0.3)
+        self.assertEqual(ctx.exception.category, "resource")
+        # ... and with the static check off, the runtime time limit still stops it.
+        with self.assertRaises(UnsafeQuery) as ctx:
+            SqliteSource(DB, policy=None).run(slow, timeout_s=0.3)
         self.assertIn("stopped", str(ctx.exception))
 
 
@@ -152,7 +157,8 @@ class AskTest(unittest.TestCase):
         data = client.post("/api/ask", json={"question": "How many orders?"}).get_json()
         self.assertEqual(data["attempts"], 2)
         retry_message = self.fake.requests[1]["messages"][-1]["content"]
-        self.assertIn("no such table", retry_message)
+        # The static check names the unknown table before SQLite ever sees the query.
+        self.assertIn("unknown table orderz", retry_message)
 
     def test_ai_cannot_write(self):
         client = self.make_client([plan("DELETE FROM orders")] * 3)
@@ -178,6 +184,40 @@ class AskTest(unittest.TestCase):
         self.assertEqual(client.post("/api/query", json={"sql": "DROP TABLE orders"}).status_code, 400)
         ok = client.post("/api/query", json={"sql": "SELECT COUNT(*) AS n FROM customers"}).get_json()
         self.assertEqual(ok["rows"], [[800]])
+
+
+class OfflineTest(unittest.TestCase):
+    """Without a key the app runs the offline engine: same safety path, no network."""
+
+    def make_client(self):
+        settings = Settings(database_url=f"sqlite:///{DB}", store_url=f"sqlite:///{TMP / 'offline.db'}", demo=True)
+        app = create_app(settings)
+        app.testing = True
+        return app.test_client()
+
+    def test_offline_question_is_answered_with_check_and_linking(self):
+        client = self.make_client()
+        self.assertEqual(client.get("/api/me").get_json()["engine"], "offline")
+        data = client.post("/api/ask", json={"question": "Revenue by city in October 2026"}).get_json()
+        self.assertEqual(data["engine"], "offline")
+        self.assertIn("city", data["columns"])
+        self.assertIn("customers", data["linking"]["tables"])
+        self.assertIn("LIMIT 501 added", data["check"]["rewrites"])
+        self.assertTrue(data["answer"].startswith("Offline mode (no AI)"))
+
+    def test_offline_mode_declines_instead_of_guessing(self):
+        client = self.make_client()
+        response = client.post("/api/ask", json={"question": "Which customers never ordered twice?"})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("AI mode", response.get_json()["error"])
+
+    def test_static_check_blocks_pii_and_reports_category(self):
+        client = self.make_client()
+        response = client.post("/api/query", json={"sql": "SELECT email FROM customers"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("protected column", response.get_json()["error"])
+        ok = client.post("/api/query", json={"sql": "SELECT city, COUNT(*) AS n FROM customers GROUP BY city"}).get_json()
+        self.assertEqual(ok["check"]["tables"], ["customers"])
 
 
 if __name__ == "__main__":

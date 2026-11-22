@@ -44,7 +44,9 @@ jobs:
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements.txt -r requirements-dev.txt
       # A fake Claude client is used: the tests never call the API and cost nothing.
-      - run: pytest -q
+      - run: pytest -q --cov --cov-report=term
+      - name: Benchmark smoke (red team must block 100%, database unchanged, accuracy >= 90%)
+        run: python scripts/benchmark.py --quick
 
   image:
     name: Docker build, smoke test, push
@@ -72,6 +74,9 @@ jobs:
           curl -fsS http://localhost:8000/ | grep -q "Ask Your Database"
           curl -fsS http://localhost:8000/api/ask -H "Content-Type: application/json" \
             -d '{"question": "What is the return rate by category?"}' | grep -q "return_rate_pct"
+          # a question beyond the examples goes through the offline NL->SQL engine
+          curl -fsS http://localhost:8000/api/ask -H "Content-Type: application/json"             -d '{"question": "Revenue by city"}' | grep -q '"engine": *"offline"'
+          curl -s http://localhost:8000/api/query -H "Content-Type: application/json"             -d '{"sql": "SELECT email FROM customers"}' | grep -q "protected column"
           curl -fsS http://localhost:8000/api/history | grep -q "return rate"
       - name: Show container logs
         if: failure()

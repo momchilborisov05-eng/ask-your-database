@@ -31,6 +31,7 @@ RUN groupadd --system app && useradd --system --gid app --home-dir /app --shell 
 WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
 COPY --chown=app:app app.py assistant.py dashboard.py demo.py safe_sql.py seed_db.py store.py ./
+COPY --chown=app:app sqlkit ./sqlkit
 COPY --chown=app:app config ./config
 COPY --chown=app:app templates ./templates
 COPY --chown=app:app static ./static

@@ -2,12 +2,18 @@
 Runs SQL safely, read-only, on the database being asked about: a SQLite file
 or Azure SQL / SQL Server. Every query has a row limit and a time limit.
 
-SQLite (a local file), three independent layers:
+SQLite (a local file), four independent layers:
 
+0. Static check before anything runs (sqlkit): a hand-written tokenizer and parser
+   prove the text is one SELECT, every table and column is on the allow-list (the
+   catalog, minus denied columns such as customers.email), every function is on the
+   safe list, joins/nesting/cross-products are bounded, and LIMIT is injected or
+   clamped. The rewritten SQL is what runs.
 1. The database file is opened in read-only mode, so SQLite itself refuses writes.
 2. An authorizer allows only reading tables and calling functions. INSERT, UPDATE,
    DELETE, DROP, ALTER, PRAGMA, ATTACH and everything else are denied.
-3. Only one statement can run per call (sqlite3 refuses "SELECT 1; DROP TABLE x").
+3. Only one statement can run per call (sqlite3 refuses "SELECT 1; DROP TABLE x"),
+   plus a time limit (progress handler) and a row limit (fetchmany).
 
 Azure SQL / SQL Server, four independent layers:
 
@@ -28,7 +34,7 @@ import re
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -50,7 +56,14 @@ WRITE_PERMISSIONS = {"INSERT", "UPDATE", "DELETE", "ALTER", "CONTROL", "EXECUTE"
 
 
 class UnsafeQuery(ValueError):
-    """The query tried to do something other than read data, or it failed."""
+    """The query tried to do something other than read data, or it failed.
+
+    category is set when the static check blocked it (write, column, pii, function ...).
+    """
+
+    def __init__(self, message: str, category: str | None = None):
+        super().__init__(message)
+        self.category = category
 
 
 @dataclass
@@ -59,13 +72,16 @@ class QueryResult:
     rows: list[list]
     truncated: bool
     elapsed_ms: int
+    check: dict = field(default_factory=dict)  # what the static check found and rewrote
 
 
-def open_source(url: str, schemas: list[str] | None = None, reader_client_id: str | None = None):
+def open_source(url: str, schemas: list[str] | None = None, reader_client_id: str | None = None,
+                denied_columns=(), static_check: bool = True):
     """sqlite:///shop.db, or mssql://<server>.database.windows.net/<database>."""
     parsed = urlparse(url)
     if parsed.scheme == "sqlite":
-        return SqliteSource(Path(parsed.path[1:]))
+        return SqliteSource(Path(parsed.path[1:]), denied_columns=denied_columns,
+                            policy="auto" if static_check else None)
     if parsed.scheme == "mssql":
         options = parse_qs(parsed.query)
         return MssqlSource(parsed.hostname, parsed.port or 1433, parsed.path.lstrip("/"),
@@ -90,17 +106,45 @@ class SqliteSource:
     dialect = "sqlite"
     label = "SQLite"
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, policy="auto", denied_columns=()):
+        """policy: "auto" builds the static check from the database catalog, None turns it off
+        (the runtime layers still apply), or pass a ready sqlkit.Policy."""
         if not Path(path).exists():
             raise FileNotFoundError(f"{path} not found. Run: python seed_db.py")
         self.path = Path(path)
         self.name = self.path.name
+        self._catalog = None
+        if policy == "auto":
+            from sqlkit.policy import Policy
+            policy = Policy.from_catalog(self.catalog(), denied_columns=denied_columns)
+        self.policy = policy
+
+    def catalog(self):
+        if self._catalog is None:
+            from sqlkit.catalog import Catalog
+            self._catalog = Catalog.from_sqlite(self.path)
+        return self._catalog
 
     def check_read_only(self) -> bool:
         return True  # opened with mode=ro and an authorizer: it can't write
 
+    def verify(self, sql: str, max_rows: int = 500):
+        """Layer 0: the static check. Returns the sqlkit Verdict (with the rewritten SQL)."""
+        from sqlkit import PolicyViolation, SqlSyntaxError
+
+        try:
+            return self.policy.check(sql, max_rows=max_rows)
+        except PolicyViolation as e:
+            raise UnsafeQuery(f"Blocked by the static check: {e}", e.category) from e
+        except SqlSyntaxError as e:
+            raise UnsafeQuery(f"SQL error: {e}") from e
+
     def run(self, sql: str, max_rows: int = 500, timeout_s: float = 5.0) -> QueryResult:
         sql = _strip(sql)
+        check = {}
+        if self.policy is not None:
+            verdict = self.verify(sql, max_rows)
+            sql, check = verdict.sql, verdict.summary()
         started = time.monotonic()
         conn = connect_readonly(self.path)
         # Called every 10,000 SQLite steps; returning True aborts the query.
@@ -120,7 +164,9 @@ class SqliteSource:
             raise UnsafeQuery(f"SQL error: {e}") from e
         finally:
             conn.close()
-        return _result(columns, rows, max_rows, started)
+        result = _result(columns, rows, max_rows, started)
+        result.check = check
+        return result
 
     def describe(self) -> str:
         """

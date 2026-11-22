@@ -2,9 +2,11 @@
 Turns a question in plain language into a SQL query, runs it safely and explains the result.
 
 1. Claude gets the database schema and the company's business rules (cached with prompt
-   caching) and the question, and returns a query in the database's own dialect (SQLite or
+   caching), the question and schema-linking hints (sqlkit.linker: which tables, values
+   and join path the question seems to mean), and returns a query in the database's own dialect (SQLite or
    T-SQL), a short explanation and a chart suggestion, using Structured Outputs.
-2. The query runs through safe_sql (read-only, SELECT only, row and time limits).
+2. The query runs through safe_sql: the static check (sqlkit) first, then read-only
+   execution with row and time limits.
 3. If the database reports an error, the error goes back to Claude, which fixes the query
    (max 2 retries).
 4. Claude writes a one- or two-sentence answer from the first rows of the result.
@@ -72,6 +74,9 @@ class Answer:
     attempts: int
     elapsed_ms: int
     usage: dict = field(default_factory=dict)
+    check: dict = field(default_factory=dict)      # the static check's verdict (tables, rewrites ...)
+    linking: dict = field(default_factory=dict)    # what the schema linker matched
+    engine: str = "claude"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -123,9 +128,11 @@ def load_context(path: str | Path | None) -> str:
 
 
 class DatabaseAssistant:
-    def __init__(self, client, source, context: str = ""):
+    def __init__(self, client, source, context: str = "", linker=None, engine: str = "claude"):
         self.client = client
         self.source = source
+        self.linker = linker
+        self.engine = engine
         self.schema = source.describe()
         rules = f"\n\nBusiness rules and definitions:\n\n{context}" if context else ""
         self.system = [{
@@ -186,9 +193,12 @@ class DatabaseAssistant:
             raise
 
     def _ask_question(self, question: str, usage: dict) -> Answer:
+        linking = self.linker.link(question) if self.linker else None
+        hints = linking.to_prompt() if linking else ""
+        hints = f"Schema-linking hints (may be incomplete):\n{hints}\n\n" if hints else ""
         messages = [{
             "role": "user",
-            "content": f"Today is {date.today().isoformat()}.\n\nQuestion: {question}",
+            "content": f"Today is {date.today().isoformat()}.\n\n{hints}Question: {question}",
         }]
 
         for attempt in range(1, MAX_FIXES + 2):
@@ -215,6 +225,8 @@ class DatabaseAssistant:
             question=question, sql=plan["sql"], explanation=plan["explanation"], answer=answer,
             chart=chart, columns=result.columns, rows=result.rows, truncated=result.truncated,
             attempts=attempt, elapsed_ms=result.elapsed_ms, usage=usage,
+            check=getattr(result, "check", {}) or {}, linking=linking.summary() if linking else {},
+            engine=self.engine,
         )
 
     def _summarize(self, question: str, sql: str, result: QueryResult, usage: dict) -> str:

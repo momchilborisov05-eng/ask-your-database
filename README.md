@@ -1,38 +1,128 @@
 # Ask Your Database
 
-Ask questions about a SQL database in plain language. Claude writes the SQL, the app runs it **read-only**, and you get a plain-language answer, a table and a chart. Next to it is a dashboard built with hand-written SQL.
+Ask questions about a SQL database in plain language. Claude writes the SQL, the app checks it, runs it **read-only**, and you get a plain-language answer, a table and a chart. Next to it is a dashboard built with hand-written SQL.
 
-It runs on a **SQLite file or a company's Azure SQL / SQL Server database**. It is built for real use:
-- Microsoft sign-in, and a read-only database login that the app checks.
-- An **audit log** of every question and query, plus per-user history and CSV export.
-- Daily spending limits.
-- Docker, CI/CD, and a one-command deployment to Azure Container Apps.
+Every query, whether Claude wrote it or you edited it, goes through **sqlkit**, a SQL tokenizer, parser and policy checker written by hand for this project. It proves the query is a single read-only `SELECT` over allowed tables and columns before the database sees it, and it rewrites the query to add a row limit. Without an API key the app still works: an **offline NL→SQL engine** answers common question shapes (metric by dimension, with filters, periods and top-N) through the same safety path.
+
+It runs on a **SQLite file or a company's Azure SQL / SQL Server database**, with Microsoft sign-in, an audit log, spending limits, Docker, CI/CD and a one-command deployment to Azure Container Apps.
 
 ![Ask Your Database](examples/cover.png)
 
-## What it does
+## Features
 
-You type a question, or click one of the example questions:
+**Static SQL check** (`sqlkit/tokenizer.py`, `parser.py`, `policy.py`, `printer.py`)
+- A tokenizer for SQLite (strings, `--` and `/* */` comments, `"quoted"`, `[bracketed]` and `` `backtick` `` names, numbers, operators) that keeps positions for error messages.
+- A recursive-descent parser for the read-only `SELECT` subset: CTEs (including `WITH RECURSIVE`), joins, subqueries, `UNION`/`INTERSECT`/`EXCEPT`, `CASE`, `CAST`, window functions with frames, `IN`/`BETWEEN`/`LIKE`/`EXISTS`. Anything else (`DELETE`, `PRAGMA`, `ATTACH`, two statements) is refused with a category and a position.
+- Scope resolution: every column reference is resolved to its table through aliases, CTEs and subqueries, so `SELECT x.e FROM (SELECT email AS e FROM customers) x` is caught as reading a protected column.
+- Allow-lists for tables, columns and functions (no `load_extension`, `randomblob`, `zeroblob`...), a PII deny-list (`customers.email` by default; `SELECT *` over it is refused too), no system tables, no bind parameters.
+- Cost guards: maximum nesting depth and join count, an estimate of unfiltered cross products from row counts (`JOIN ... ON 1 = 1` counts as unfiltered), and recursive CTEs without a stop condition.
+- Rewrite: `LIMIT max_rows + 1` is added when missing and larger limits are clamped. The printer turns the AST back into canonical SQL; round trips are tested.
 
-> *What is the return rate by category?*
+**Schema linking** (`sqlkit/linker.py`)
+- Matches question words against stored values (cities, categories, products, statuses), with aliases from the semantic layer ("mobile" → `mobile_app`, "cash" → `cash_on_delivery`) and one-edit typo tolerance for longer words ("Plovidv" → Plovdiv).
+- Matches the words of metrics and dimensions, and table and column names.
+- Connects the linked tables through the foreign-key graph with a greedy Steiner-tree approximation (BFS from the growing tree).
+- The result goes into Claude's prompt as short hints, and the UI shows it under every answer.
 
-1. **Claude writes a query in the database's own dialect** (SQLite or T-SQL). It knows the schema, the foreign keys, the column values (statuses, cities, categories) and the company's business rules. The rules live in a Markdown file, [`config/shop.md`](config/shop.md), for example that revenue excludes cancelled and returned orders. Replace that file to teach it your own definitions, with no code changes.
-2. **The query runs safely**, read-only, with a row limit and a time limit.
-3. **If the database reports an error**, the error goes back to Claude, which fixes its own query (up to 2 times).
-4. **Claude answers in one or two sentences** using the numbers from the result, and suggests a chart (line, bar, pie or none).
-5. **You see the SQL**, can edit it and run it again. The edited query is still read-only.
+**Offline NL→SQL** (`sqlkit/nl2sql.py`, `config/shop.semantic.json`)
+- Question → frame (metrics, dimensions, value filters, period, top-N, direction) → SQL, compiled from a semantic layer: 12 metrics (revenue, orders, units, customers, new customers, AOV, return rate, gross profit, margin, stock, products, payments) and 9 dimensions.
+- Periods: month and year, quarters, "last N days/weeks/months" relative to the latest order.
+- It declines what it cannot do ("never", "compare", "median", "share of"...) instead of guessing, and it says so. Replace the JSON file to describe another database.
 
-> Laptops have the highest return rate at 5.62% (10 of 178 orders), followed by Smart Home at 3.94% and Accessories at 3.35%... Phones have the lowest at 2.13%.
+**Evaluation** (`sqlkit/evaluate.py`, `scripts/benchmark.py`, `eval/`)
+- Execution accuracy: the generated query and a hand-written gold query run on the same database, and the result sets are compared as multisets.
+- A red-team set of 67 attacks in 8 categories and a benign set, measured against each safety layer alone and combined, with a hash of the database file before and after.
+
+**The app**
+- Claude writes the query in the database's own dialect (SQLite or T-SQL), with the schema, foreign keys, column values and business rules from [`config/shop.md`](config/shop.md). If the database reports an error, the error goes back to Claude, which fixes its own query (up to 2 times).
+- Claude answers in one or two sentences and suggests a chart. You see the SQL, the static-check verdict and the linking, and can edit and rerun the query (still checked, still read-only).
+- Microsoft sign-in, an audit log, per-user history, CSV export, daily spending limits, a dashboard with hand-written SQL, dark and light themes.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Q[Question] --> L[Schema linker<br/>values, words, FK join path]
+    L -->|hints| C{API key?}
+    C -->|yes| AI[Claude<br/>Structured Outputs]
+    C -->|no| OE[Offline engine<br/>frame -> semantic layer -> SQL]
+    AI --> SQL[SQL]
+    OE --> SQL
+    E[Edited SQL] --> SQL
+    SQL --> S[sqlkit static check<br/>tokenize, parse, resolve scopes,<br/>allow-lists, PII, cost, LIMIT rewrite]
+    S -->|blocked: category + reason| X[Error to user / back to Claude]
+    S -->|rewritten SQL| R[Runtime guards<br/>read-only connection, authorizer,<br/>one statement, timeout, fetchmany]
+    R --> DB[(SQLite / Azure SQL)]
+    DB --> A[Answer, table, chart]
+    A --> LOG[(Audit log)]
+```
+
+## Benchmark
+
+Measured 2026-11-20 on Python 3.12.3, Windows 11, with `python scripts/benchmark.py` (full output: [`examples/benchmark.md`](examples/benchmark.md), raw: [`examples/benchmark.json`](examples/benchmark.json)). Offline mode only; Claude mode was not re-measured.
+
+**Offline NL→SQL execution accuracy (EX).** A question counts as correct when the generated query returns the same rows as the hand-written gold query (order-insensitive, numbers rounded to 2 decimals). A declined question counts as wrong.
+
+| Set | Template-shaped | Beyond templates | All | Precision when answered |
+|---|---|---|---|---|
+| In-sample: [`eval/questions.json`](eval/questions.json), 42 questions, the engine was tuned on it | 35/36 = 97.2% | 0/6 (declined) | 35/42 = 83.3% | 97.2% |
+| Held-out: [`eval/holdout.json`](eval/holdout.json), 17 questions written after the engine was frozen, run once | 14/15 = 93.3% | 0/2 (declined) | 14/17 = 82.4% | 93.3% |
+
+The held-out miss is "Which month had the highest revenue?" (top-N is not applied to time dimensions). The in-sample miss is "Which payment method is used most?". Questions beyond the templates are declined, not guessed.
+
+**Schema linking** (tables found vs tables the gold query reads): recall 97.7% / precision 77.8% in-sample, 98.5% / 84.8% held-out.
+
+**Red team** ([`eval/redteam.json`](eval/redteam.json)): 67 attacks and 92 benign queries (20 controls, every gold query, the dashboard and demo SQL).
+
+| Layer | Attacks blocked | Benign queries blocked |
+|---|---|---|
+| Static check alone (sqlkit) | 100.0% | 0.0% |
+| Runtime layers alone (read-only connection, authorizer, timeout) | 61.2% | 0.0% |
+| Both, as shipped | 100.0% | 0.0% |
+
+The runtime layers alone stop every write, but they let through reads of the protected email column (0 of 12), system tables (1 of 8) and some functions; the static check closes those gaps. The database file was unchanged after the run (sha256).
+
+**Latency** (offline, 20 rounds over the 42 questions):
+
+| Step | p50 | p95 |
+|---|---|---|
+| Static check (tokenize, parse, verify, rewrite) | 0.66 ms | 1.24 ms |
+| Schema linking | 3.04 ms | 7.52 ms |
+| NL→SQL plan (link, frame, compile) | 4.35 ms | 10.76 ms |
+| Guarded execution on shop.db | 5.05 ms | 10.78 ms |
+| Offline question, end to end (same path as the web app) | 14.40 ms | 23.38 ms |
+
+**Claude mode** (measured 2026-10-28, [`examples/example-answers.json`](examples/example-answers.json)): all 8 example questions answered on the first attempt, mean 7.8 s per answer, about $0.13 in total, about 70% of input tokens read from the prompt cache. Four were checked by hand against hand-written SQL and matched (Black Friday week vs the week before, return rate by category, city with the highest average order, top 5 products in September 2026 with a three-way tie). Execution accuracy on the eval sets and red-team rates with Claude in the loop: not measured.
+
+## Quick start
+
+```bash
+pip install -r requirements.txt
+python seed_db.py        # creates shop.db (already in the repo)
+python app.py            # http://localhost:5000, offline mode without a key
+```
+
+For Claude mode, copy `.env.example` to `.env` and add your API key from https://console.anthropic.com. `DEMO_MODE=1` forces offline mode even when a key is set.
+
+```bash
+python scripts/benchmark.py            # writes examples/benchmark.json and .md
+python scripts/benchmark.py --quick    # CI smoke run with pass/fail gates
+```
+
+With Docker: `docker compose up --build` serves it at http://localhost:8000 (offline without a key).
+
+![Answer with the static check and linking](examples/screenshot-guard.png)
 
 ## Safety: the AI can't change your data
 
-**SQLite**, three independent layers:
+**SQLite**, four independent layers:
 
 | Layer | What it stops |
 |---|---|
+| **sqlkit static check** before the query reaches SQLite | Writes and DDL, `PRAGMA`, `ATTACH`, two statements, unknown tables and columns, protected columns (also through `*` and subquery aliases), system tables, unsafe functions, unfiltered cross products, unbounded recursion; adds a `LIMIT` |
 | The database is opened in **read-only mode** (`mode=ro`) | SQLite itself refuses every write |
 | A SQLite **authorizer** allows only reading tables and calling functions | `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `PRAGMA`, `ATTACH`, also when hidden in a `WITH ...` |
-| **One statement per call** | `SELECT 1; DROP TABLE orders` |
+| **One statement per call**, a progress-handler **time limit** and `fetchmany` | `SELECT 1; DROP TABLE orders`, runaway queries, huge results |
 
 **Azure SQL / SQL Server**, four independent layers:
 
@@ -43,7 +133,7 @@ You type a question, or click one of the example questions:
 | Every query runs in a **transaction that is always rolled back** | Anything that slipped through |
 | A **query timeout** on the connection, and only the first rows are fetched | Runaway queries |
 
-There is also a **time limit** (5 seconds) and a **row limit** (500 rows). The question itself is treated as data, not instructions. The tests try dangerous queries in both dialects and check that the data is unchanged.
+There is also a **time limit** (5 seconds) and a **row limit** (500 rows). The question itself is treated as data, not instructions.
 
 ## Built for real use
 
@@ -55,20 +145,7 @@ There is also a **time limit** (5 seconds) and a **row limit** (500 rows). The q
 | **CSV export** | The full result of any past query (up to 10,000 rows), with cells escaped so Excel doesn't run formulas. |
 | **Locked-down options** | `ALLOW_CUSTOM_SQL=0` hides "Run edited SQL", so only AI-written queries run. |
 | **Health** | `/healthz` (liveness) and `/readyz`, which checks that the database and audit store are reachable and the login is read-only. JSON request logs with request ids. A content security policy with a nonce for the one inline script. |
-| **Demo mode** | `DEMO_MODE=1` runs without an API key. The example questions get SQL written in advance, and everything else (queries, history, dashboard) is real. |
-
-## Tested with real questions
-
-All 8 example questions were answered on the first attempt. Four were checked against hand-written SQL:
-
-| Question | Result |
-|---|---|
-| Revenue in Black Friday week 2025 vs the week before | ✓ €12,635.25 (65 orders) vs €18,711.75 (47 orders) |
-| Return rate by category | ✓ all 7 categories match |
-| City with the highest average order value | ✓ Pleven, €404.54 |
-| 5 best-selling products in September 2026 | ✓ correct, with a three-way tie at 21 units for 4th place. The prompt now asks the AI to keep and mention ties. |
-
-The full answers, SQL and timings are in [`examples/example-answers.json`](examples/example-answers.json). The 8 questions together cost about $0.13. The schema is prompt-cached, so about 70% of the input tokens were read from the cache.
+| **Offline mode** | Without a key (or with `DEMO_MODE=1`) the example questions get SQL written in advance and other questions go to the offline engine. Everything else (checks, queries, history, dashboard) is real. |
 
 ## Dashboard: hand-written SQL
 
@@ -84,13 +161,34 @@ Every card has an **SQL** button that shows the query behind it:
 
 ## Screenshots
 
-The interface has a dark and a light theme (toggle in the top bar, remembered in the browser; `?theme=light` or `?theme=dark` forces one), smooth GSAP animations and a layout that works down to phone width.
+Dark and light themes (toggle in the top bar, remembered in the browser; `?theme=light` or `?theme=dark` forces one), and a layout that works down to phone width.
 
 | Answer (dark) | Answer (light) | Phone |
 |---|---|---|
 | ![Answer, dark theme](examples/screenshot-answer.png) | ![Answer, light theme](examples/screenshot-answer-light.png) | ![Phone, 390 px](examples/screenshot-mobile.png) |
 
 Light dashboard: [`examples/screenshot-dashboard-light.png`](examples/screenshot-dashboard-light.png).
+
+## Design decisions
+
+- **A hand-written parser instead of a SQL library.** The check has to understand scopes (which `e` is `customers.email`?), not just keywords, and it must fail closed: anything outside the supported subset is refused. Writing the subset by hand keeps that decision explicit and testable, and it costs 0.66 ms at p50.
+- **Defence in depth, measured per layer.** The static check catches everything in the red-team set by itself, but the read-only connection and the authorizer stay on: a parser bug should not be enough to write. The benchmark reports each layer alone so the gaps of each are visible.
+- **The offline engine declines rather than guesses.** A wrong number that looks right is worse than "this needs the AI mode". Precision when answered (93.3% held-out) matters more than coverage here.
+- **A semantic layer in JSON.** Metric definitions (revenue excludes cancelled and returned orders) live in one file shared by the offline engine and the linker, next to the Markdown rules Claude reads.
+- **Honest evaluation.** The in-sample set was used to build the engine; the held-out set was written afterwards and run once. Both are reported.
+
+## Project layout
+
+```
+app.py, assistant.py, safe_sql.py   Flask app, Claude flow, database sources and runtime guards
+sqlkit/                             tokenizer, parser, printer, policy, catalog, linker, nl2sql, evaluate
+config/                             business rules for Claude (shop.md) and the semantic layer (shop.semantic.json)
+eval/                               questions.json (in-sample), holdout.json, redteam.json
+scripts/benchmark.py                writes examples/benchmark.json and .md
+demo.py, dashboard.py, store.py     offline client, dashboard SQL, audit store
+infra/                              Bicep, deploy script, SQL grants
+tests/                              pytest, fake Claude client, no network
+```
 
 ## The sample database
 
@@ -109,20 +207,7 @@ The data has realistic patterns: growth over time, a Black Friday and Christmas 
 
 The same data loads into Azure SQL, in schema `shop`, with `python seed_db.py --target mssql://...`. The dashboard has a T-SQL version of every query, and a test checks that it gives exactly the same numbers on Azure SQL as on SQLite.
 
-To use your own data, set `ASKDB_DATABASE` to any SQLite file or Azure SQL database, with `?schemas=` for the schemas the assistant may see. Then write your business rules into a Markdown file and point `ASKDB_CONTEXT` at it. The schema description is built automatically. The hand-written dashboard belongs to the sample shop, so it hides itself on other databases.
-
-## Setup
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env     # Windows: copy .env.example .env
-# add your API key from https://console.anthropic.com to .env (or set DEMO_MODE=1)
-
-python seed_db.py        # creates shop.db
-python app.py            # http://localhost:5000
-```
-
-With Docker: `docker compose up --build` serves it at http://localhost:8000 (in demo mode without a key).
+To use your own data, set `ASKDB_DATABASE` to any SQLite file or Azure SQL database, with `?schemas=` for the schemas the assistant may see. Write your business rules into a Markdown file and point `ASKDB_CONTEXT` at it; for the offline engine, describe your metrics in a semantic-layer JSON file and point `ASKDB_SEMANTIC` at it. The hand-written dashboard belongs to the sample shop, so it hides itself on other databases.
 
 ### Your Azure SQL database
 
@@ -144,11 +229,7 @@ Locally the app signs in with your Azure CLI account. It logs a warning if that 
 
   [`infra/grant_sql_access.py`](infra/grant_sql_access.py) creates both database users with exactly those rights.
 - **The API key stays in Key Vault**, and you add it yourself. The script stops and tells you how if it's missing.
-- **Hosting:**
-  - Azure Container Apps that scales to zero when idle;
-  - Microsoft sign-in;
-  - `REQUIRE_READ_ONLY=1`;
-  - logs in Log Analytics with a daily cap.
+- **Hosting:** Azure Container Apps that scales to zero when idle, Microsoft sign-in, `REQUIRE_READ_ONLY=1`, and logs in Log Analytics with a daily cap.
 
 ```powershell
 ./infra/deploy.ps1 -ResourceGroup rg-askdb -SqlServer <server> -SqlDatabase <database> -Schemas shop `
@@ -157,8 +238,8 @@ Locally the app signs in with your Azure CLI account. It logs a warning if that 
 
 **CI/CD** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push:
 1. ruff;
-2. tests on Python 3.11–3.13;
-3. a Docker build, then a smoke test that starts the container in demo mode and asks a question;
+2. tests with coverage on Python 3.11–3.13, then the benchmark smoke run (fails if an attack gets through, the database changes, or template accuracy drops below 90%);
+3. a Docker build (multi-stage, non-root, healthcheck), then a smoke test that starts the container offline, asks an example question and a free question, and checks that a PII query is blocked;
 4. on `main`, a push to GitHub Container Registry and a rollout to Container Apps through OpenID Connect, with no stored Azure secret.
 
 ### Configuration
@@ -169,40 +250,39 @@ Locally the app signs in with your Azure CLI account. It logs a warning if that 
 | `READER_CLIENT_ID` | – | Client id of the read-only managed identity (Azure) |
 | `ASKDB_STORE` | `sqlite:///askdb.db` | The audit log; `mssql://host/db` uses schema `askdb` |
 | `ASKDB_CONTEXT` | `config/shop.md` | Business rules and definitions for the model |
+| `ASKDB_SEMANTIC` | `config/shop.semantic.json` | Semantic layer for the offline engine and the linker |
+| `ASKDB_DENY_COLUMNS` | `customers.email` | Columns no query may read (comma-separated `table.column`) |
+| `ASKDB_STATIC_CHECK` | `1` | `0` turns the sqlkit check off (runtime layers stay on) |
 | `AUTH_MODE` | `none` | `easyauth` behind Container Apps / App Service sign-in |
 | `ALLOWED_USERS`, `ADMIN_USERS` | – | Comma-separated sign-in names |
 | `DAILY_BUDGET_USD`, `DAILY_BUDGET_TOTAL_USD` | `1.00`, `5.00` | Spending limits per user and for the app |
 | `REQUIRE_READ_ONLY` | `0` | `1`: refuse to run queries if the login could write |
 | `ALLOW_CUSTOM_SQL` | `1` | `0`: only AI-written queries run |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | |
-| `DEMO_MODE` | `0` | `1`: no API key needed |
-
-## Tech stack
-
-- Python, Flask and gunicorn.
-- SQLite (CTEs, window functions, an authorizer and read-only mode) and Azure SQL (T-SQL, Microsoft Entra ID with managed identities, `mssql-python`).
-- Vanilla JavaScript, Chart.js and GSAP.
-- The Claude API: Structured Outputs and prompt caching.
-- Docker, GitHub Actions, Bicep, Azure Container Apps and Key Vault.
+| `DEMO_MODE` | `0` | `1`: offline mode even when a key is set |
 
 ## Tests
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
-pytest
+pytest --cov
 ASKDB_TEST_MSSQL="mssql://<server>.database.windows.net/<db>?schemas=shop" pytest   # plus the Azure SQL test
 ```
 
-45 offline tests use a fake Claude client, so they cost nothing (plus one optional test against Azure SQL):
+103 tests pass offline (plus one optional test against Azure SQL, skipped without a server); line coverage is 84%. The tests use a fake Claude client and never touch the network.
 
-- **SQL safety:** dangerous queries blocked in SQLite (with the data checked afterwards) and in the T-SQL guard, while keywords inside strings and quoted names are still allowed. Azure SQL queries are time-limited and always rolled back. The read-only login check is tested against several permission sets.
-- **The AI flow:** answers, self-correction after an SQL error, refusing writes, unanswerable questions, invalid chart columns, and dialect-specific prompts.
-- **Sign-in, history and the audit log:**
-  - sign-in and the allowlist;
-  - the audit log of successful, failed and blocked queries with their cost;
-  - users seeing only their own history, while admins see everyone's;
-  - daily limits;
-  - refusing to run on a login that could write.
-- **The rest:** CSV export, demo mode for every example question, the dashboard (including the `LAG()` growth formula) and the CSP nonce.
+- **sqlkit:** tokenizer positions and quoting, parser errors, printer round trips (and operator precedence checked by running the printed SQL), every policy category, PII through `*` and subquery aliases, LIMIT injection and clamping, bounded vs unbounded recursion.
+- **Linking and offline NL→SQL:** values, aliases and typos, the FK join path, prompt hints, frames with filters, periods and top-N, results checked against gold SQL, declines.
+- **Evaluation:** result-set comparison, a red-team smoke run, every gold query passes the static check, and the benchmark's quick mode.
+- **SQL safety in the app:** dangerous queries blocked in SQLite (with the data checked afterwards) and in the T-SQL guard; Azure SQL queries time-limited and always rolled back; the read-only login check.
+- **The AI flow:** answers, self-correction after an SQL error, refusing writes, unanswerable questions, invalid chart columns, dialect-specific prompts, and offline mode end to end.
+- **Sign-in, history and the audit log**, daily limits, CSV export, the dashboard (including the `LAG()` growth formula) and the CSP nonce.
 
-The optional Azure SQL test loads nothing itself. Against a database seeded with `--target`, it checks the schema description, the guard and the permission check, and that the T-SQL dashboard matches the SQLite one number for number.
+## Limitations
+
+- **The parser covers SQLite's read-only subset only.** Azure SQL queries go through a separate, keyword-level T-SQL guard plus the database's own permissions; sqlkit does not parse T-SQL.
+- **The offline engine handles metric-by-dimension questions** for the configured semantic layer. Comparisons, "never", medians, shares, per-customer averages and relative dates like "last month" are declined (0 of 8 such questions answered in the eval sets). Top-N on a time dimension is not supported.
+- **The eval sets are small and written by one person** (42 in-sample, 17 held-out). The in-sample numbers are optimistic because the engine was tuned on them.
+- **Claude mode was not re-measured** for this version (paid API). Its execution accuracy on the eval sets and its behaviour under the red team are not measured; the only Claude numbers are from the 8 example questions on 2026-10-28.
+- **Not verified here:** the Docker image, docker compose and the CI workflow (Docker is not installed on the machine where this was built), and the Azure deployment for this version.
+- Latency was measured on one Windows laptop; your numbers will differ.

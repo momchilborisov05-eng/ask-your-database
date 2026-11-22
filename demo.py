@@ -1,9 +1,14 @@
 """
-Demo mode (DEMO_MODE=1): a stand-in for the Claude client, so the app can be
-tried without an API key. The example questions have SQL written in advance
-for the sample SQLite shop; the query still runs for real through safe_sql,
-and the result, chart, history and audit log work as with the real API.
-Any other question gets a polite "demo mode" refusal.
+Offline mode (no ANTHROPIC_API_KEY, or DEMO_MODE=1): a stand-in for the Claude client,
+so the app works with no key and no network.
+
+1. The eight example questions have SQL written in advance for the sample shop.
+2. Any other question goes to the offline NL->SQL engine (sqlkit.nl2sql), which
+   answers common metric-by-dimension questions from the semantic layer and declines
+   the rest with a reason.
+
+The query still runs for real through the static check and safe_sql, and the result,
+chart, history and audit log work as with the real API.
 """
 
 import json
@@ -13,6 +18,7 @@ import uuid
 from anthropic.types.beta import BetaMessage
 
 from dashboard import EXAMPLE_QUESTIONS
+from sqlkit.nl2sql import Declined, describe_rows
 
 VALID = "o.status NOT IN ('cancelled', 'returned')"
 PLANS = {
@@ -70,7 +76,10 @@ FROM customers WHERE signed_up >= '2026-01-01' GROUP BY month ORDER BY month""")
 
 
 class DemoClient:
-    def __init__(self):
+    """engine: an sqlkit OfflineEngine for questions beyond the examples (None: examples only)."""
+
+    def __init__(self, engine=None):
+        self.engine = engine
         self.beta = self
         self.messages = self
 
@@ -81,19 +90,30 @@ class DemoClient:
             return _message({"answer": _summary(prompt)})
         question = prompt.split("Question:", 1)[-1].strip()
         plan = PLANS.get(question)
-        if not plan:
-            return _message({"can_answer": False, "sql": "", "chart": {"type": "none", "x": "", "y": ""},
-                             "explanation": "Demo mode (no API key) answers only the example questions. "
-                                            "Set ANTHROPIC_API_KEY to ask anything."})
-        chart, x, y, sql = plan
-        return _message({"can_answer": True, "sql": sql.strip(), "chart": {"type": chart, "x": x, "y": y},
-                         "explanation": "Demo mode: this query was written in advance for this example question."})
+        if plan:
+            chart, x, y, sql = plan
+            return _message({"can_answer": True, "sql": sql.strip(), "chart": {"type": chart, "x": x, "y": y},
+                             "explanation": "Offline mode: this query was written in advance for this example."})
+        if self.engine is None:
+            return _decline("Offline mode answers only the example questions here. "
+                            "Set ANTHROPIC_API_KEY to ask anything.")
+        try:
+            offline = self.engine.plan(question)
+        except Declined as e:
+            return _decline(str(e))
+        return _message({"can_answer": True, "sql": offline.sql, "chart": offline.chart,
+                         "explanation": offline.explanation})
+
+
+def _decline(reason: str) -> BetaMessage:
+    return _message({"can_answer": False, "sql": "", "chart": {"type": "none", "x": "", "y": ""},
+                     "explanation": reason})
 
 
 def _summary(prompt: str) -> str:
     rows = json.loads(re.search(r"result rows:\n(.*)\n\n", prompt, re.S)[1])
-    first = ", ".join(f"{k} {v}" for k, v in rows[0].items())
-    return f"Demo mode (no API key): the first of {len(rows)} rows is {first}."
+    columns = list(rows[0]) if rows else []
+    return "Offline mode (no AI): " + describe_rows(columns, [list(r.values()) for r in rows])
 
 
 def _message(data: dict) -> BetaMessage:

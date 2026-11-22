@@ -1,0 +1,107 @@
+{
+ "_about": "Held-out questions, written after the offline engine and config/shop.semantic.json were frozen. The engine was NOT changed after its first run on this file, so these numbers are out-of-sample. Same gold conventions as questions.json.",
+ "questions": [
+  {
+   "id": "h01",
+   "kind": "template",
+   "question": "How many units did we sell in Q2 2026?",
+   "gold": "SELECT SUM(oi.quantity) FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.status IN ('delivered', 'shipped') AND o.ordered_at >= '2026-04-01' AND o.ordered_at < '2026-07-01'"
+  },
+  {
+   "id": "h02",
+   "kind": "template",
+   "question": "Show revenue for each city",
+   "gold": "SELECT cu.city, ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) FROM customers cu JOIN orders o ON o.customer_id = cu.id JOIN order_items oi ON oi.order_id = o.id WHERE o.status IN ('delivered', 'shipped') GROUP BY cu.city"
+  },
+  {
+   "id": "h03",
+   "kind": "template",
+   "question": "Which channel brings the most revenue?",
+   "gold": "SELECT o.channel, ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) AS r FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.status IN ('delivered', 'shipped') GROUP BY o.channel ORDER BY r DESC LIMIT 1"
+  },
+  {
+   "id": "h04",
+   "kind": "template",
+   "question": "top three cities by number of orders",
+   "gold": "SELECT cu.city, COUNT(*) AS n FROM orders o JOIN customers cu ON cu.id = o.customer_id GROUP BY cu.city ORDER BY n DESC LIMIT 3"
+  },
+  {
+   "id": "h05",
+   "kind": "template",
+   "question": "Return rate in 2025",
+   "gold": "SELECT ROUND(100.0 * SUM(status = 'returned') / COUNT(*), 2) FROM orders WHERE status <> 'cancelled' AND ordered_at LIKE '2025%'"
+  },
+  {
+   "id": "h06",
+   "kind": "template",
+   "question": "Average basket size by channel",
+   "gold": "SELECT channel, ROUND(AVG(t), 2) FROM (SELECT o.channel, SUM(oi.quantity * oi.unit_price_eur) AS t FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.status IN ('delivered', 'shipped') GROUP BY o.id) GROUP BY channel"
+  },
+  {
+   "id": "h07",
+   "kind": "template",
+   "question": "How many customers do we have in Ruse?",
+   "gold": "SELECT COUNT(*) FROM customers WHERE city = 'Ruse'"
+  },
+  {
+   "id": "h08",
+   "kind": "template",
+   "question": "Profit by product",
+   "gold": "SELECT pr.name, ROUND(SUM(oi.quantity * (oi.unit_price_eur - pr.cost_eur)), 2) FROM products pr JOIN order_items oi ON oi.product_id = pr.id JOIN orders o ON o.id = oi.order_id WHERE o.status IN ('delivered', 'shipped') GROUP BY pr.id"
+  },
+  {
+   "id": "h09",
+   "kind": "template",
+   "question": "Revenue from Smart Home in 2026",
+   "gold": "SELECT ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products pr ON pr.id = oi.product_id JOIN categories cat ON cat.id = pr.category_id WHERE cat.name = 'Smart Home' AND o.status IN ('delivered', 'shipped') AND o.ordered_at LIKE '2026%'"
+  },
+  {
+   "id": "h10",
+   "kind": "template",
+   "question": "Which month had the highest revenue?",
+   "gold": "SELECT substr(o.ordered_at, 1, 7) AS m, ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) AS r FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.status IN ('delivered', 'shipped') GROUP BY m ORDER BY r DESC LIMIT 1"
+  },
+  {
+   "id": "h11",
+   "kind": "template",
+   "question": "Units sold per category in the last 90 days",
+   "gold": "SELECT cat.name, SUM(oi.quantity) FROM categories cat JOIN products pr ON pr.category_id = cat.id JOIN order_items oi ON oi.product_id = pr.id JOIN orders o ON o.id = oi.order_id WHERE o.status IN ('delivered', 'shipped') AND o.ordered_at >= date((SELECT MAX(ordered_at) FROM orders), '-90 days') GROUP BY cat.name"
+  },
+  {
+   "id": "h12",
+   "kind": "template",
+   "question": "Number of new customers in 2025",
+   "gold": "SELECT COUNT(*) FROM customers WHERE signed_up >= '2025-01-01' AND signed_up < '2026-01-01'"
+  },
+  {
+   "id": "h13",
+   "kind": "template",
+   "question": "Revenue paid by bank transfer by month",
+   "gold": "SELECT substr(o.ordered_at, 1, 7), ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) FROM orders o JOIN order_items oi ON oi.order_id = o.id JOIN payments pay ON pay.order_id = o.id WHERE pay.method = 'bank_transfer' AND o.status IN ('delivered', 'shipped') GROUP BY 1"
+  },
+  {
+   "id": "h14",
+   "kind": "template",
+   "question": "What is the most popular product in Kitchen?",
+   "gold": "SELECT pr.name, SUM(oi.quantity) AS u FROM products pr JOIN categories cat ON cat.id = pr.category_id JOIN order_items oi ON oi.product_id = pr.id JOIN orders o ON o.id = oi.order_id WHERE cat.name = 'Kitchen' AND o.status IN ('delivered', 'shipped') GROUP BY pr.id ORDER BY u DESC LIMIT 1"
+  },
+  {
+   "id": "h15",
+   "kind": "template",
+   "question": "Average order value for mobile app orders",
+   "gold": "SELECT ROUND(AVG(t), 2) FROM (SELECT SUM(oi.quantity * oi.unit_price_eur) AS t FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.channel = 'mobile_app' AND o.status IN ('delivered', 'shipped') GROUP BY o.id)"
+  },
+  {
+   "id": "h16",
+   "kind": "beyond",
+   "question": "How many orders had more than 3 items?",
+   "gold": "SELECT COUNT(*) FROM (SELECT order_id FROM order_items GROUP BY order_id HAVING SUM(quantity) > 3)"
+  },
+  {
+   "id": "h17",
+   "kind": "beyond",
+   "question": "Revenue per weekday",
+   "gold": "SELECT strftime('%w', o.ordered_at), ROUND(SUM(oi.quantity * oi.unit_price_eur), 2) FROM orders o JOIN order_items oi ON oi.order_id = o.id WHERE o.status IN ('delivered', 'shipped') GROUP BY 1"
+  }
+ ]
+}

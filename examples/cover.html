@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Ask Your Database</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body { margin:0; width:1280px; height:720px; overflow:hidden; font-family:"Golos Text","Segoe UI",system-ui,sans-serif; background:linear-gradient(135deg,#030712,#0c1e3a 52%,#0b4a6f); color:#fff; position:relative; }
+body::after { content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 10%, rgba(56,189,248,.22), transparent 45%); pointer-events:none; }
+.left { position:absolute; left:64px; top:50px; width:548px; z-index:1; }
+.badge { display:inline-block; background:rgba(255,255,255,.15); padding:7px 14px; border-radius:99px; font-size:15px; margin-bottom:18px; }
+h1 { font-size:54px; line-height:1.03; margin:0 0 10px; letter-spacing:-1px; }
+.tag { font-size:21px; color:#7dd3fc; margin:0 0 20px; }
+pre { background:#020617; color:#cbd5e1; border-radius:12px; padding:13px 16px; font:13.5px/1.62 "JetBrains Mono", Consolas, monospace; margin:0 0 20px; box-shadow:0 10px 30px rgba(0,0,0,.35); white-space:pre-wrap; }
+pre .k { color:#7dd3fc; } pre .w { color:#fbbf24; } pre .g { color:#6ee7b7; } pre .m { color:#94a3b8; }
+ul { list-style:none; padding:0; margin:0; font-size:18.5px; line-height:1.7; }
+li::before { content:"✓  "; color:#38bdf8; font-weight:700; }
+.shot { position:absolute; right:40px; top:92px; width:600px; height:540px; border-radius:14px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.55); background:#0a0b10; border:1px solid rgba(255,255,255,.12); z-index:1; }
+.shot img { width:900px; display:block; margin-left:-84px; margin-top:-30px; }
+</style></head><body>
+<div class="left">
+  <span class="badge">Python · Flask · SQLite / Azure SQL · Claude API</span>
+  <h1>Ask Your Database</h1>
+  <p class="tag">Plain-language questions, SQL checked before it runs</p>
+  <pre><span class="k">parse</span>    hand-written SQL parser <span class="g">→ p50 0.66 ms</span>
+<span class="k">guard</span>    67 attacks <span class="g">→ 100% blocked</span>, 0% false blocks
+<span class="k">link</span>     question → tables <span class="g">→ 98.5% recall</span>
+<span class="k">offline</span>  NL→SQL, held-out <span class="w">→ 14/15 template Qs</span>
+<span class="k">ask</span>      end to end, no AI <span class="g">→ p50 14 ms</span>
+<span class="m">  103 tests, 84% coverage</span></pre>
+  <ul>
+    <li>Claude writes SQL; it runs read-only</li>
+    <li>Static check: tables, columns, PII, LIMIT</li>
+    <li>Works offline with no API key</li>
+    <li>Audit log, budgets, Azure deploy</li>
+  </ul>
+</div>
+<div class="shot"><img src="screenshot-answer.png" alt=""></div>
+</body></html>

@@ -1,5 +1,5 @@
 # Local run with Docker:  docker compose up --build   ->  http://localhost:8000
-# Without an API key it starts in demo mode (example questions only).
+# Without an API key it runs offline: example questions plus the offline NL->SQL engine.
 services:
   web:
     build: .

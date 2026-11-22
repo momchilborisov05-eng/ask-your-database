@@ -1,0 +1,199 @@
+{
+  "measured_at": "2026-11-20",
+  "machine": {
+    "python": "3.12.3",
+    "platform": "Windows-11",
+    "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel"
+  },
+  "in_sample": {
+    "all": {
+      "questions": 42,
+      "answered": 36,
+      "correct": 35,
+      "coverage": 0.8571,
+      "execution_accuracy": 0.8333,
+      "precision_when_answered": 0.9722,
+      "link_table_recall": 0.9774,
+      "link_table_precision": 0.7782
+    },
+    "template": {
+      "questions": 36,
+      "answered": 36,
+      "correct": 35,
+      "coverage": 1.0,
+      "execution_accuracy": 0.9722,
+      "precision_when_answered": 0.9722,
+      "link_table_recall": 0.9806,
+      "link_table_precision": 0.7898
+    },
+    "beyond": {
+      "questions": 6,
+      "answered": 0,
+      "correct": 0,
+      "coverage": 0.0,
+      "execution_accuracy": 0.0,
+      "precision_when_answered": 0.0,
+      "link_table_recall": 0.9583,
+      "link_table_precision": 0.7083
+    },
+    "template_misses": [
+      {
+        "id": "q26",
+        "question": "Which payment method is used most?",
+        "reason": "wrong result"
+      }
+    ]
+  },
+  "held_out": {
+    "all": {
+      "questions": 17,
+      "answered": 15,
+      "correct": 14,
+      "coverage": 0.8824,
+      "execution_accuracy": 0.8235,
+      "precision_when_answered": 0.9333,
+      "link_table_recall": 0.9853,
+      "link_table_precision": 0.848
+    },
+    "template": {
+      "questions": 15,
+      "answered": 15,
+      "correct": 14,
+      "coverage": 1.0,
+      "execution_accuracy": 0.9333,
+      "precision_when_answered": 0.9333,
+      "link_table_recall": 0.9833,
+      "link_table_precision": 0.8778
+    },
+    "beyond": {
+      "questions": 2,
+      "answered": 0,
+      "correct": 0,
+      "coverage": 0.0,
+      "execution_accuracy": 0.0,
+      "precision_when_answered": 0.0,
+      "link_table_recall": 1.0,
+      "link_table_precision": 0.625
+    },
+    "template_misses": [
+      {
+        "id": "h10",
+        "question": "Which month had the highest revenue?",
+        "reason": "wrong result"
+      }
+    ]
+  },
+  "red_team": {
+    "attacks": 67,
+    "benign": 92,
+    "block_rate": {
+      "static": 1.0,
+      "runtime": 0.6119,
+      "combined": 1.0
+    },
+    "false_block_rate": {
+      "static": 0.0,
+      "runtime": 0.0,
+      "combined": 0.0
+    },
+    "by_category": {
+      "function": {
+        "n": 8,
+        "static": 1.0,
+        "runtime": 0.5,
+        "combined": 1.0
+      },
+      "multi-statement": {
+        "n": 6,
+        "static": 1.0,
+        "runtime": 0.8333,
+        "combined": 1.0
+      },
+      "pii": {
+        "n": 12,
+        "static": 1.0,
+        "runtime": 0.0,
+        "combined": 1.0
+      },
+      "pragma-attach": {
+        "n": 8,
+        "static": 1.0,
+        "runtime": 0.875,
+        "combined": 1.0
+      },
+      "resource": {
+        "n": 5,
+        "static": 1.0,
+        "runtime": 0.8,
+        "combined": 1.0
+      },
+      "system-table": {
+        "n": 8,
+        "static": 1.0,
+        "runtime": 0.125,
+        "combined": 1.0
+      },
+      "unknown-object": {
+        "n": 5,
+        "static": 1.0,
+        "runtime": 1.0,
+        "combined": 1.0
+      },
+      "write": {
+        "n": 15,
+        "static": 1.0,
+        "runtime": 1.0,
+        "combined": 1.0
+      }
+    },
+    "db_unchanged": true,
+    "missed_combined": [],
+    "false_blocks_static": []
+  },
+  "latency": {
+    "schema_linking": {
+      "n": 840,
+      "p50_ms": 3.041,
+      "p95_ms": 7.524,
+      "mean_ms": 3.666
+    },
+    "nl_to_sql_plan": {
+      "n": 840,
+      "p50_ms": 4.354,
+      "p95_ms": 10.76,
+      "mean_ms": 4.858
+    },
+    "static_check": {
+      "n": 840,
+      "p50_ms": 0.656,
+      "p95_ms": 1.236,
+      "mean_ms": 0.679
+    },
+    "query_execution": {
+      "n": 840,
+      "p50_ms": 5.053,
+      "p95_ms": 10.783,
+      "mean_ms": 5.546
+    },
+    "offline_ask_end_to_end": {
+      "n": 42,
+      "p50_ms": 14.397,
+      "p95_ms": 23.375,
+      "mean_ms": 15.324,
+      "answered": 36,
+      "questions": 42
+    }
+  },
+  "claude_mode": {
+    "measured_at": "2026-10-28",
+    "source": "examples/example-answers.json (8 example questions, one run each)",
+    "questions": 8,
+    "answered_first_try": 8,
+    "seconds_mean": 7.8,
+    "seconds_max": 11.5,
+    "total_cost_usd_approx": 0.13,
+    "execution_accuracy": "not measured",
+    "red_team_with_model": "not measured"
+  },
+  "rounds": 20
+}

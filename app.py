@@ -67,6 +67,9 @@ class Settings:
     require_read_only: bool = False
     allow_custom_sql: bool = True
     demo: bool = False
+    deny_columns: list[str] = field(default_factory=lambda: ["customers.email"])
+    static_check: bool = True
+    semantic_path: str | None = str(HERE / "config" / "shop.semantic.json")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -88,6 +91,10 @@ class Settings:
             require_read_only=os.environ.get("REQUIRE_READ_ONLY") == "1",
             allow_custom_sql=os.environ.get("ALLOW_CUSTOM_SQL", "1") != "0",
             demo=os.environ.get("DEMO_MODE") == "1",
+            deny_columns=[c.strip() for c in os.environ.get("ASKDB_DENY_COLUMNS", "customers.email").split(",")
+                          if c.strip()],
+            static_check=os.environ.get("ASKDB_STATIC_CHECK", "1") != "0",
+            semantic_path=os.environ.get("ASKDB_SEMANTIC", defaults.semantic_path) or None,
         )
 
 
@@ -108,14 +115,23 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     settings = settings or Settings.from_env()
     if settings.auth_mode not in {"none", "easyauth"}:
         raise ValueError("AUTH_MODE must be 'none' or 'easyauth'")
+    source = open_source(settings.database_url, settings.schemas, settings.reader_client_id,
+                         denied_columns=settings.deny_columns, static_check=settings.static_check)
+    # No key and no injected client: run offline (example SQL + the template NL->SQL engine).
+    offline = ai_client_factory is None and (settings.demo or not os.environ.get("ANTHROPIC_API_KEY"))
+    semantic = _load_semantic(settings.semantic_path) if source.dialect == "sqlite" else None
     if ai_client_factory is None:
-        if settings.demo:
+        if offline:
             from demo import DemoClient
-            ai_client_factory = DemoClient
+
+            def ai_client_factory():
+                engine = None
+                if semantic:
+                    from sqlkit.nl2sql import OfflineEngine
+                    engine = OfflineEngine(source.catalog(), semantic)
+                return DemoClient(engine)
         else:
             ai_client_factory = lambda: anthropic.Anthropic(max_retries=3)  # noqa: E731
-
-    source = open_source(settings.database_url, settings.schemas, settings.reader_client_id)
     store = Store(settings.store_url)
     context = load_context(settings.context_path)
     app = Flask(__name__)
@@ -130,7 +146,12 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     def get_assistant() -> DatabaseAssistant:
         with lock:
             if "assistant" not in lazy:
-                lazy["assistant"] = DatabaseAssistant(ai_client_factory(), source, context)
+                linker = None
+                if semantic:
+                    from sqlkit.linker import SchemaLinker
+                    linker = SchemaLinker(source.catalog(), semantic)
+                lazy["assistant"] = DatabaseAssistant(ai_client_factory(), source, context, linker,
+                                                      engine="offline" if offline else "claude")
             return lazy["assistant"]
 
     def read_only() -> bool:
@@ -144,7 +165,7 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
             return lazy["read_only"]
 
     def ai_ready() -> bool:
-        return settings.demo or bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return not offline
 
     # ---------- request handling ----------
 
@@ -205,7 +226,7 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     @app.get("/")
     def index():
         return render_template("index.html", examples=EXAMPLE_QUESTIONS, ai_ready=ai_ready(),
-                               demo=settings.demo, custom_sql=settings.allow_custom_sql, nonce=g.nonce)
+                               demo=offline, custom_sql=settings.allow_custom_sql, nonce=g.nonce)
 
     @app.get("/healthz")
     def healthz():
@@ -232,7 +253,9 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
         user = current_user()
         today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         return jsonify({"name": user.name, "admin": user.admin, "auth": settings.auth_mode,
-                        "demo": settings.demo, "database": f"{source.label}: {source.name}",
+                        "demo": offline, "engine": "offline" if offline else "claude",
+                        "static_check": getattr(source, "policy", None) is not None,
+                        "database": f"{source.label}: {source.name}",
                         "custom_sql": settings.allow_custom_sql,
                         "spent_today_usd": round(store.spent_since(today, user.id), 4),
                         "daily_budget_usd": settings.daily_budget_per_user})
@@ -253,8 +276,6 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     @app.post("/api/ask")
     def ask():
         user = current_user()
-        if not ai_ready():
-            raise ApiError("AI needs an API key. Set ANTHROPIC_API_KEY, or DEMO_MODE=1 to try it.", 503)
         question = str((request.get_json(silent=True) or {}).get("question", "")).strip()
         if not question:
             raise ApiError("Type a question first.")
@@ -289,12 +310,12 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
         try:
             result = source.run(sql)
         except UnsafeQuery as e:
-            blocked = "not allowed" in str(e) or "Only" in str(e)
+            blocked = bool(e.category) or "not allowed" in str(e) or "Only" in str(e)
             store.log(**entry, status="blocked" if blocked else "error", error=str(e)[:2000])
             raise ApiError(str(e)) from None
         question_id = store.log(**entry, status="ok", row_count=len(result.rows), elapsed_ms=result.elapsed_ms)
         return jsonify({"id": question_id, "columns": result.columns, "rows": result.rows,
-                        "truncated": result.truncated, "elapsed_ms": result.elapsed_ms})
+                        "truncated": result.truncated, "elapsed_ms": result.elapsed_ms, "check": result.check})
 
     @app.get("/api/history")
     def history():
@@ -328,6 +349,13 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
                         headers={"Content-Disposition": f'attachment; filename="query-{question_id}.csv"'})
 
     return app
+
+
+def _load_semantic(path: str | None) -> dict | None:
+    """The semantic layer (metrics, dimensions, value aliases) for linking and offline answers."""
+    if not path or not Path(path).exists():
+        return None
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _usage(usage: dict | None) -> dict:

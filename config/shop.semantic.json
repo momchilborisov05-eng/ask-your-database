@@ -1,0 +1,86 @@
+{
+  "_about": "Semantic layer for the sample shop: the metrics, dimensions and words the offline NL->SQL engine and the schema linker understand. Definitions follow config/shop.md. Replace this file for another database.",
+  "aliases": {"orders": "o", "order_items": "i", "products": "p", "categories": "c", "customers": "cu", "payments": "pay"},
+  "valid_orders": "o.status NOT IN ('cancelled', 'returned')",
+  "default_time": "o.ordered_at",
+  "filter_columns": ["categories.name", "products.name", "customers.city", "orders.channel", "orders.status", "payments.method"],
+  "metrics": {
+    "revenue": {
+      "sql": "ROUND(SUM(i.quantity * i.unit_price_eur), 2)", "alias": "revenue_eur", "tables": ["orders", "order_items"],
+      "valid_only": true, "label": "revenue",
+      "words": ["revenue", "sales", "turnover", "income", "earned", "spent", "spend", "money", "sold for", "takings"]
+    },
+    "orders": {
+      "sql": "COUNT(DISTINCT o.id)", "alias": "orders", "tables": ["orders"], "valid_only": false, "label": "number of orders",
+      "words": ["orders", "order count", "number of orders", "how many orders", "order volume", "purchases"],
+      "weak": ["orders", "purchases"]
+    },
+    "units": {
+      "sql": "SUM(i.quantity)", "alias": "units_sold", "tables": ["orders", "order_items"], "valid_only": true,
+      "label": "units sold",
+      "words": ["units", "units sold", "best selling", "bestselling", "best sellers", "bestsellers", "quantity", "items sold", "most sold", "sold the most", "sold best", "sell best", "popular"]
+    },
+    "customers": {
+      "sql": "COUNT(DISTINCT cu.id)", "alias": "customers", "tables": ["customers"], "valid_only": false,
+      "label": "number of customers", "period_tables": ["orders"],
+      "words": ["customers", "how many customers", "number of customers", "clients", "buyers", "shoppers"],
+      "weak": ["customers", "clients", "buyers", "shoppers"]
+    },
+    "new_customers": {
+      "sql": "COUNT(*)", "alias": "new_customers", "tables": ["customers"], "valid_only": false,
+      "label": "new customers", "time": "cu.signed_up",
+      "words": ["new customers", "signed up", "sign ups", "signups", "registrations", "registered", "joined", "new clients"]
+    },
+    "aov": {
+      "sql": "ROUND(SUM(i.quantity * i.unit_price_eur) / COUNT(DISTINCT o.id), 2)", "alias": "avg_order_eur",
+      "tables": ["orders", "order_items"], "valid_only": true, "label": "average order value",
+      "words": ["average order value", "average order", "avg order", "aov", "average basket", "basket size", "typical order", "mean order value"]
+    },
+    "return_rate": {
+      "sql": "ROUND(100.0 * COUNT(DISTINCT CASE WHEN o.status = 'returned' THEN o.id END) / COUNT(DISTINCT o.id), 2)",
+      "alias": "return_rate_pct", "tables": ["orders"], "valid_only": false, "where": "o.status <> 'cancelled'",
+      "label": "return rate (%)", "keeps_status": true,
+      "words": ["return rate", "returns rate", "rate of returns", "share of returns", "percentage returned", "returned share", "how often returned"]
+    },
+    "gross_profit": {
+      "sql": "ROUND(SUM(i.quantity * (i.unit_price_eur - p.cost_eur)), 2)", "alias": "gross_profit_eur",
+      "tables": ["orders", "order_items", "products"], "valid_only": true, "label": "gross profit",
+      "words": ["gross profit", "profit", "profits", "profitable"]
+    },
+    "margin": {
+      "sql": "ROUND(100.0 * SUM(i.quantity * (i.unit_price_eur - p.cost_eur)) / SUM(i.quantity * i.unit_price_eur), 1)",
+      "alias": "margin_pct", "tables": ["orders", "order_items", "products"], "valid_only": true, "label": "margin (%)",
+      "words": ["margin", "margins", "gross margin", "profit margin"]
+    },
+    "stock": {
+      "sql": "SUM(p.stock)", "alias": "units_in_stock", "tables": ["products"], "valid_only": false, "label": "units in stock", "only_with": ["products", "categories"],
+      "words": ["stock", "in stock", "units in stock", "inventory", "warehouse", "on hand"]
+    },
+    "products": {
+      "sql": "COUNT(DISTINCT p.id)", "alias": "products", "tables": ["products"], "valid_only": false, "label": "number of products",
+      "words": ["how many products", "number of products", "product count"]
+    },
+    "payments": {
+      "sql": "ROUND(SUM(pay.amount_eur), 2)", "alias": "paid_eur", "tables": ["payments"], "valid_only": false,
+      "label": "amount paid", "time": "pay.paid_at", "only_with": ["payments", "orders", "customers"],
+      "words": ["paid", "amount paid", "payments", "payment amount", "collected", "cash collected"]
+    }
+  },
+  "dimensions": {
+    "category": {"sql": "c.name", "alias": "category", "tables": ["categories"], "words": ["category", "categories", "product category", "product line", "segment"]},
+    "product": {"sql": "p.name", "alias": "product", "tables": ["products"], "group": "p.id", "words": ["product", "products", "item", "items", "model", "models"]},
+    "city": {"sql": "cu.city", "alias": "city", "tables": ["customers"], "words": ["city", "cities", "town", "towns", "location", "region"]},
+    "channel": {"sql": "o.channel", "alias": "channel", "tables": ["orders"], "words": ["channel", "channels", "platform", "web or app", "web vs app"]},
+    "status": {"sql": "o.status", "alias": "status", "tables": ["orders"], "words": ["status", "statuses", "order status", "state"]},
+    "payment_method": {"sql": "pay.method", "alias": "payment_method", "tables": ["payments"], "words": ["payment method", "payment methods", "payment type", "payment types", "way of paying", "how customers pay"]},
+    "customer": {"sql": "cu.first_name || ' ' || cu.last_name", "alias": "customer", "tables": ["customers"], "group": "cu.id", "words": ["customer", "customers", "client", "clients", "buyer", "buyers", "shopper", "shoppers"]},
+    "month": {"time": "%Y-%m", "alias": "month", "words": ["month", "months", "monthly", "per month", "each month", "every month", "month by month", "over time", "trend"]},
+    "year": {"time": "%Y", "alias": "year", "words": ["year", "years", "yearly", "annual", "annually", "per year", "each year"]}
+  },
+  "value_aliases": {
+    "orders.channel": {"mobile": "mobile_app", "app": "mobile_app", "mobile app": "mobile_app", "website": "web", "online": "web", "web shop": "web"},
+    "payments.method": {"cash": "cash_on_delivery", "cash on delivery": "cash_on_delivery", "cod": "cash_on_delivery", "bank": "bank_transfer", "bank transfer": "bank_transfer", "transfer": "bank_transfer", "card": "card", "cards": "card", "credit card": "card", "debit card": "card"},
+    "orders.status": {"canceled": "cancelled", "cancellations": "cancelled", "refunded": "returned"}
+  },
+  "unsupported": ["both", "never", "without", "not bought", "didn't", "did not", "compare", "compared", " vs ", "versus", "growth", "grew", "increase", "decrease", "change", "share of", "percent of", "percentage of", "median", "second highest", "second best", "second most", "last month", "this month", "this year", "last year", "yesterday", "today", "this week", "last week", "repeat", "more than", "fewer than", "less than", "greater than", "at least", "per customer", "week", "weekday", "day of", "hour", "black friday", "christmas", "low on stock", "ratio", "difference", "cumulative", "running total", "first order", "last order", "average number", "each customer's"]
+}

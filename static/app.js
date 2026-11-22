@@ -275,12 +275,46 @@ function showAnswer(data) {
   const fixed = data.attempts > 1 ? ` · AI fixed its own query ${data.attempts - 1}×` : "";
   $("sql-meta").textContent = `· ${data.rows.length}${data.truncated ? "+" : ""} rows · ${data.elapsed_ms} ms${fixed}`;
   $("sql-error").textContent = "";
+  showGuard(data.check, data.linking, data.engine);
   showResult(data.columns, data.rows, data.chart);
   if (motion) {
     gsap.from(["#answer .answer-head", "#answer .answer-grid", "#answer .sql-details"],
       { opacity: 0, y: 14, duration: 0.5, stagger: 0.1, ease: "power3.out" });
     pulse(".ask-panel");
   }
+}
+
+// What the static check proved and rewrote, and what the schema linker matched.
+function pill(text, kind) {
+  const el = document.createElement("span");
+  el.className = "pill" + (kind ? " pill-" + kind : "");
+  el.textContent = text;
+  return el;
+}
+
+function showGuard(check, linking, engine) {
+  const box = $("guard"), row1 = $("guard-check"), row2 = $("guard-link");
+  row1.replaceChildren();
+  row2.replaceChildren();
+  if (check && check.tables) {
+    const label = document.createElement("span");
+    label.className = "guard-label";
+    label.textContent = "Static check";
+    row1.append(label, pill("1 SELECT", "ok"), pill(`tables: ${check.tables.join(", ")}`, "ok"),
+      pill(`${check.columns} columns allowed`, "ok"), pill(`${check.joins} joins`, ""),
+      pill(`${check.elapsed_ms} ms`, ""));
+    (check.rewrites || []).forEach((r) => row1.append(pill(r, "rw")));
+  }
+  if (linking && (linking.values?.length || linking.tables?.length)) {
+    const label = document.createElement("span");
+    label.className = "guard-label";
+    label.textContent = engine === "offline" ? "Linked (offline engine)" : "Linked for the prompt";
+    row2.append(label);
+    (linking.values || []).forEach((v) => row2.append(pill(`"${v.text}" → ${v.column} = ${v.value}`, "val")));
+    (linking.metrics || []).forEach((m) => row2.append(pill(`metric: ${m}`, "")));
+    (linking.dimensions || []).forEach((d) => row2.append(pill(`by: ${d}`, "")));
+  }
+  box.hidden = !row1.childElementCount && !row2.childElementCount;
 }
 
 // A short accent glow that says "done".
@@ -323,6 +357,7 @@ $("run-sql").addEventListener("click", async () => {
     $("answer-text").textContent = "Result of your edited query:";
     setExport(data.id);
     $("sql-meta").textContent = `· ${data.rows.length}${data.truncated ? "+" : ""} rows · ${data.elapsed_ms} ms · edited`;
+    showGuard(data.check, null, null);
     showResult(data.columns, data.rows, null);
     if (motion) pulse(".ask-panel");
   } catch (err) {
