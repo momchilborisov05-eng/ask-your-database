@@ -3,6 +3,10 @@
   "aliases": {"channels": "ch", "campaigns": "ca", "ad_spend": "sp", "ga4_sessions": "s", "accounts": "a", "contacts": "c", "deals": "d"},
   "default_time": "d.created_at",
   "default_metric": "pipeline",
+  "page": {
+    "placeholder": "e.g. Which channel brought the most pipeline last quarter?",
+    "footnote": "Sample data: the marketing and sales pipeline of a fictional B2B SaaS company (ad spend, GA4 sessions, 500 accounts, 6,323 contacts, 603 deals, May 2025 – October 2026)."
+  },
   "strict_metrics": true,
   "filter_columns": ["channels.name", "channels.kind", "campaigns.name", "deals.stage", "deals.owner", "accounts.segment", "accounts.industry", "accounts.country", "ga4_sessions.device", "contacts.job_title"],
   "metrics": {

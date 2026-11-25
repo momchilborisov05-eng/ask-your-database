@@ -158,6 +158,8 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     if examples:
         offline_topics = ", ".join(m["label"] for m in list(semantic["metrics"].values())[:8])
     examples = examples or EXAMPLE_QUESTIONS
+    # Page text that describes the sample data; the template falls back to the sample shop's.
+    page = (semantic or {}).get("page", {})
     app = Flask(__name__)
     app.config["settings"] = settings
     if not logging.getLogger().handlers:
@@ -250,7 +252,8 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
     @app.get("/")
     def index():
         return render_template("index.html", examples=examples, ai_ready=ai_ready(), demo=offline,
-                               offline_topics=offline_topics, custom_sql=settings.allow_custom_sql, nonce=g.nonce)
+                               offline_topics=offline_topics, page=page, custom_sql=settings.allow_custom_sql,
+                               nonce=g.nonce)
 
     @app.get("/healthz")
     def healthz():

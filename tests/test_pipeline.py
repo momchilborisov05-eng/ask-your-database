@@ -216,6 +216,8 @@ def test_app_shows_pipeline_examples(client):
     assert "Which channel brought the most pipeline in Q3 2026?" in page
     assert "pipeline created" in page  # the offline banner lists this sample's metrics
     assert "Which products sold the most" not in page
+    assert "fictional B2B SaaS company" in page and "online shop in Bulgaria" not in page
+    assert "Which products sold best last month" not in page
 
 
 def test_app_answers_a_pipeline_question_offline(client, conn):
