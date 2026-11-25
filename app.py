@@ -13,6 +13,8 @@ In production it runs under gunicorn in a container on Azure Container Apps
     READER_CLIENT_ID   managed identity that may only SELECT from those schemas
     ASKDB_STORE        the app's own audit log: sqlite:///askdb.db or mssql://...
     ASKDB_CONTEXT      business rules for the model (Markdown), default config/shop.md
+    ASKDB_SAMPLE       shop (default) or pipeline: the B2B marketing and sales sample
+                       (python seed_pipeline.py) with its own rules and semantic layer
     AUTH_MODE          none (one local user) or easyauth (Microsoft sign-in by the platform)
     ALLOWED_USERS      optional comma-separated allowlist of sign-in names
     ADMIN_USERS        sign-in names that may read everyone's audit log
@@ -52,6 +54,16 @@ HERE = Path(__file__).parent
 log = logging.getLogger("askdb")
 
 
+# The bundled sample databases: each one comes with its business rules, semantic layer
+# and the column the static check keeps out of every answer.
+SAMPLES = {
+    "shop": {"database": "shop.db", "context": "shop.md", "semantic": "shop.semantic.json",
+             "deny": "customers.email"},
+    "pipeline": {"database": "pipeline.db", "context": "pipeline.md", "semantic": "pipeline.semantic.json",
+                 "deny": "contacts.email"},
+}
+
+
 @dataclass
 class Settings:
     database_url: str = f"sqlite:///{HERE / 'shop.db'}"
@@ -76,7 +88,13 @@ class Settings:
         def names(key):
             return {n.strip().lower() for n in os.environ.get(key, "").split(",") if n.strip()}
 
-        defaults = cls()
+        name = os.environ.get("ASKDB_SAMPLE", "shop").strip().lower() or "shop"
+        if name not in SAMPLES:
+            raise ValueError(f"ASKDB_SAMPLE must be one of: {', '.join(SAMPLES)}")
+        sample = SAMPLES[name]
+        defaults = cls(database_url=f"sqlite:///{HERE / sample['database']}",
+                       context_path=str(HERE / "config" / sample["context"]),
+                       semantic_path=str(HERE / "config" / sample["semantic"]))
         return cls(
             database_url=os.environ.get("ASKDB_DATABASE", defaults.database_url),
             schemas=[s.strip() for s in os.environ.get("ASKDB_SCHEMAS", "").split(",") if s.strip()],
@@ -91,7 +109,7 @@ class Settings:
             require_read_only=os.environ.get("REQUIRE_READ_ONLY") == "1",
             allow_custom_sql=os.environ.get("ALLOW_CUSTOM_SQL", "1") != "0",
             demo=os.environ.get("DEMO_MODE") == "1",
-            deny_columns=[c.strip() for c in os.environ.get("ASKDB_DENY_COLUMNS", "customers.email").split(",")
+            deny_columns=[c.strip() for c in os.environ.get("ASKDB_DENY_COLUMNS", sample["deny"]).split(",")
                           if c.strip()],
             static_check=os.environ.get("ASKDB_STATIC_CHECK", "1") != "0",
             semantic_path=os.environ.get("ASKDB_SEMANTIC", defaults.semantic_path) or None,
@@ -129,11 +147,17 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
                 if semantic:
                     from sqlkit.nl2sql import OfflineEngine
                     engine = OfflineEngine(source.catalog(), semantic)
-                return DemoClient(engine)
+                return DemoClient(engine, example_plans(semantic))
         else:
             ai_client_factory = lambda: anthropic.Anthropic(max_retries=3)  # noqa: E731
     store = Store(settings.store_url)
     context = load_context(settings.context_path)
+    # A semantic layer may bring its own example questions; the sample shop uses the built-in ones.
+    examples = [e if isinstance(e, str) else e["question"] for e in (semantic or {}).get("examples", [])]
+    offline_topics = None
+    if examples:
+        offline_topics = ", ".join(m["label"] for m in list(semantic["metrics"].values())[:8])
+    examples = examples or EXAMPLE_QUESTIONS
     app = Flask(__name__)
     app.config["settings"] = settings
     if not logging.getLogger().handlers:
@@ -225,8 +249,8 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
 
     @app.get("/")
     def index():
-        return render_template("index.html", examples=EXAMPLE_QUESTIONS, ai_ready=ai_ready(),
-                               demo=offline, custom_sql=settings.allow_custom_sql, nonce=g.nonce)
+        return render_template("index.html", examples=examples, ai_ready=ai_ready(), demo=offline,
+                               offline_topics=offline_topics, custom_sql=settings.allow_custom_sql, nonce=g.nonce)
 
     @app.get("/healthz")
     def healthz():
@@ -349,6 +373,12 @@ def create_app(settings: Settings | None = None, ai_client_factory=None) -> Flas
                         headers={"Content-Disposition": f'attachment; filename="query-{question_id}.csv"'})
 
     return app
+
+
+def example_plans(semantic: dict | None) -> dict:
+    """Example questions whose SQL was written in advance (the ones the template engine can't build)."""
+    return {e["question"]: (e["chart"]["type"], e["chart"]["x"], e["chart"]["y"], e["sql"])
+            for e in (semantic or {}).get("examples", []) if isinstance(e, dict)}
 
 
 def _load_semantic(path: str | None) -> dict | None:

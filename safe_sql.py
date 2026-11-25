@@ -110,7 +110,8 @@ class SqliteSource:
         """policy: "auto" builds the static check from the database catalog, None turns it off
         (the runtime layers still apply), or pass a ready sqlkit.Policy."""
         if not Path(path).exists():
-            raise FileNotFoundError(f"{path} not found. Run: python seed_db.py")
+            seed = "seed_pipeline.py" if Path(path).name == "pipeline.db" else "seed_db.py"
+            raise FileNotFoundError(f"{path} not found. Run: python {seed}")
         self.path = Path(path)
         self.name = self.path.name
         self._catalog = None
