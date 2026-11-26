@@ -107,8 +107,14 @@ class OfflineEngine:
 
         metric_hits = [m for m in metric_hits if not any(overlaps(m, x) and longer(m, x)
                                                          for x in dim_hits + metric_hits)]
-        dim_hits = [d for d in dim_hits if not any(overlaps(d, m) and m[2] - m[1] > d[2] - d[1]
-                                                   for m in metric_hits)]
+        # The same between dimensions: "channel type" beats "channel".
+        dim_hits = [d for d in dim_hits if not any(overlaps(d, x) and longer(d, x)
+                                                   for x in metric_hits + dim_hits)]
+        # A dimension word inside a longer stored value is part of the value: "paid channels" filters
+        # on the channel kind, it does not ask for a breakdown by channel.
+        value_spans = [(v.start, v.end) for v in linking.values if f"{v.table}.{v.column}" in self.filter_columns]
+        dim_hits = [d for d in dim_hits if not any(s <= d[1] and d[2] <= e and e - s > d[2] - d[1]
+                                                   for s, e in value_spans)]
         top_n, ascending = self._top(text)
         superlative = top_n is not None or bool(re.search(r"\b(which|who)\b", text))
         # Same span, both a metric and a dimension ("customers"): decide from the rest of the question.
@@ -140,9 +146,10 @@ class OfflineEngine:
         dims = [d[0] for d in cat_dims] + [d[0] for d in time_dims[:1]]
         if not metrics:
             if not cat_dims:
-                raise Declined("The offline engine could not find a metric (revenue, orders, units, customers, "
-                               "return rate, profit ...) in this question.")
-            metrics = ["revenue"]
+                known = ", ".join(spec["label"] for spec in list(self.semantic["metrics"].values())[:6])
+                raise Declined(f"The offline engine could not find a metric ({known} ...) in this question.")
+            # A bare breakdown ("by category") means the main metric of this semantic layer.
+            metrics = [self.semantic.get("default_metric", "revenue")]
 
         # Superlative over a singular noun ("which city has the most ...") means the single winner.
         if top_n is None and cat_dims:
@@ -177,6 +184,10 @@ class OfflineEngine:
             same = all(spec.get(k) == first.get(k) for k in ("where", "time", "only_with"))
             if same and name not in out:
                 out.append(name)
+            elif not same and self.semantic.get("strict_metrics"):
+                # Leaving one out silently would answer a different question than the one asked.
+                raise Declined(f"'{first['label']}' and '{spec['label']}' are counted on different rows or dates, "
+                               "so they cannot share one query; ask for them one at a time or use the AI mode.")
         return out
 
     @staticmethod

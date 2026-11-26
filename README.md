@@ -29,6 +29,12 @@ It runs on a **SQLite file or a company's Azure SQL / SQL Server database**, wit
 - Periods: month and year, quarters, "last N days/weeks/months" relative to the latest order.
 - It declines what it cannot do ("never", "compare", "median", "share of"...) instead of guessing, and it says so. Replace the JSON file to describe another database.
 
+**Second sample: B2B marketing and sales pipeline** (`seed_pipeline.py`, `config/pipeline.semantic.json`, `config/pipeline.md`)
+- Ad spend, GA4 sessions and CRM leads and deals in one database, so it answers "Which channel brought the most pipeline in Q3 2026?", "Win rate by segment" or "Top 5 campaigns by won revenue". Start it with `ASKDB_SAMPLE=pipeline`.
+- 21 metrics and 13 dimensions, with the definitions a revenue team argues about written down once: pipeline is dated by when the deal was created, won revenue and win rate by when it closed, win rate ignores open deals.
+- The four fact tables have different grains, so the engine never joins two of them: "Spend by segment" is declined instead of returning spend multiplied by deals. Two metrics with different row filters or dates in one question are declined too.
+- 40 more eval questions with independent gold SQL (`eval/pipeline.json`): 30 the engine must answer exactly, 10 cross-source ones (cost per opportunity, ROAS, funnel) it must decline.
+
 **Evaluation** (`sqlkit/evaluate.py`, `scripts/benchmark.py`, `eval/`)
 - Execution accuracy: the generated query and a hand-written gold query run on the same database, and the result sets are compared as multisets.
 - A red-team set of 67 attacks in 8 categories and a benign set, measured against each safety layer alone and combined, with a hash of the database file before and after.
@@ -100,6 +106,13 @@ The runtime layers alone stop every write, but they let through reads of the pro
 pip install -r requirements.txt
 python seed_db.py        # creates shop.db (already in the repo)
 python app.py            # http://localhost:5000, offline mode without a key
+```
+
+For the B2B pipeline sample instead of the shop:
+
+```bash
+python seed_pipeline.py              # creates pipeline.db
+ASKDB_SAMPLE=pipeline python app.py  # PowerShell: $env:ASKDB_SAMPLE="pipeline"; python app.py
 ```
 
 For Claude mode, copy `.env.example` to `.env` and add your API key from https://console.anthropic.com. `DEMO_MODE=1` forces offline mode even when a key is set.
@@ -182,15 +195,16 @@ Light dashboard: [`examples/screenshot-dashboard-light.png`](examples/screenshot
 ```
 app.py, assistant.py, safe_sql.py   Flask app, Claude flow, database sources and runtime guards
 sqlkit/                             tokenizer, parser, printer, policy, catalog, linker, nl2sql, evaluate
-config/                             business rules for Claude (shop.md) and the semantic layer (shop.semantic.json)
-eval/                               questions.json (in-sample), holdout.json, redteam.json
+config/                             business rules for Claude (shop.md, pipeline.md) and the semantic layers (*.semantic.json)
+eval/                               questions.json (in-sample), holdout.json, redteam.json, pipeline.json
+seed_db.py, seed_pipeline.py        the two sample databases
 scripts/benchmark.py                writes examples/benchmark.json and .md
 demo.py, dashboard.py, store.py     offline client, dashboard SQL, audit store
 infra/                              Bicep, deploy script, SQL grants
 tests/                              pytest, fake Claude client, no network
 ```
 
-## The sample database
+## The sample databases
 
 `seed_db.py` creates `shop.db`, a fictional online shop in Bulgaria with repeatable random data:
 
@@ -206,6 +220,24 @@ tests/                              pytest, fake Claude client, no network
 The data has realistic patterns: growth over time, a Black Friday and Christmas peak, a shift to the mobile app in 2026, and a few very loyal customers.
 
 The same data loads into Azure SQL, in schema `shop`, with `python seed_db.py --target mssql://...`. The dashboard has a T-SQL version of every query, and a test checks that it gives exactly the same numbers on Azure SQL as on SQLite.
+
+### B2B pipeline sample
+
+`seed_pipeline.py` creates `pipeline.db`: a fictional B2B SaaS company (invoice automation for finance teams) with the three sources a marketing team reports on. `ASKDB_SAMPLE=pipeline` selects the database, its rules, its semantic layer and the denied column (`contacts.email`) together.
+
+| Table | Rows | Notes |
+|---|---|---|
+| channels | 9 | LinkedIn Ads, Google Ads, Meta Ads, 6sense ABM (paid); Organic Search, Direct, Referral, Email, Events |
+| campaigns | 17 | belong to a channel |
+| ad_spend | 5,151 | daily cost, impressions and clicks per campaign |
+| ga4_sessions | 14,661 | daily sessions, engaged sessions and conversions per channel and device |
+| accounts | 500 | segment (SMB, Mid-Market, Enterprise), industry, country |
+| contacts | 6,323 | leads with original-source channel, job title, MQL date |
+| deals | 603 | stage, owner, amount, created and closed dates, May 2025 – Oct 2026 |
+
+The patterns are the ones such data usually has: LinkedIn and ABM deals are more than twice the size of Google Ads deals, Meta brings many leads that rarely qualify (12% become MQLs, against 48% for ABM), enterprise deals take about three times longer to close than SMB, and mobile traffic converts worst. Without a key the app answers metric-by-dimension questions with the offline engine and two cross-source examples (pipeline per euro of ad spend, the lead-to-won funnel) with SQL written in advance; with a key Claude gets `config/pipeline.md`, which tells it to aggregate each source in its own CTE before joining. This sample is SQLite only, and the dashboard below belongs to the shop.
+
+### Your own data
 
 To use your own data, set `ASKDB_DATABASE` to any SQLite file or Azure SQL database, with `?schemas=` for the schemas the assistant may see. Write your business rules into a Markdown file and point `ASKDB_CONTEXT` at it; for the offline engine, describe your metrics in a semantic-layer JSON file and point `ASKDB_SEMANTIC` at it. The hand-written dashboard belongs to the sample shop, so it hides itself on other databases.
 
@@ -246,6 +278,7 @@ Locally the app signs in with your Azure CLI account. It logs a warning if that 
 
 | Variable | Default | |
 |---|---|---|
+| `ASKDB_SAMPLE` | `shop` | `pipeline` switches the four defaults below to the B2B pipeline sample |
 | `ASKDB_DATABASE` | `sqlite:///shop.db` | The database to ask about; `mssql://host/db?schemas=a,b` for Azure SQL |
 | `READER_CLIENT_ID` | – | Client id of the read-only managed identity (Azure) |
 | `ASKDB_STORE` | `sqlite:///askdb.db` | The audit log; `mssql://host/db` uses schema `askdb` |
@@ -269,10 +302,11 @@ pytest --cov
 ASKDB_TEST_MSSQL="mssql://<server>.database.windows.net/<db>?schemas=shop" pytest   # plus the Azure SQL test
 ```
 
-103 tests pass offline (plus one optional test against Azure SQL, skipped without a server); line coverage is 84%. The tests use a fake Claude client and never touch the network.
+159 tests pass offline (plus one optional test against Azure SQL, skipped without a server); line coverage is 86%. The tests use a fake Claude client and never touch the network.
 
 - **sqlkit:** tokenizer positions and quoting, parser errors, printer round trips (and operator precedence checked by running the printed SQL), every policy category, PII through `*` and subquery aliases, LIMIT injection and clamping, bounded vs unbounded recursion.
 - **Linking and offline NL→SQL:** values, aliases and typos, the FK join path, prompt hints, frames with filters, periods and top-N, results checked against gold SQL, declines.
+- **The pipeline sample:** the seed is deterministic and consistent, the engine equals gold SQL on 30 questions and declines 10, won metrics use the close date, fact tables are never joined, `contacts.email` is blocked, and the app answers it offline end to end.
 - **Evaluation:** result-set comparison, a red-team smoke run, every gold query passes the static check, and the benchmark's quick mode.
 - **SQL safety in the app:** dangerous queries blocked in SQLite (with the data checked afterwards) and in the T-SQL guard; Azure SQL queries time-limited and always rolled back; the read-only login check.
 - **The AI flow:** answers, self-correction after an SQL error, refusing writes, unanswerable questions, invalid chart columns, dialect-specific prompts, and offline mode end to end.
@@ -282,6 +316,7 @@ ASKDB_TEST_MSSQL="mssql://<server>.database.windows.net/<db>?schemas=shop" pytes
 
 - **The parser covers SQLite's read-only subset only.** Azure SQL queries go through a separate, keyword-level T-SQL guard plus the database's own permissions; sqlkit does not parse T-SQL.
 - **The offline engine handles metric-by-dimension questions** for the configured semantic layer. Comparisons, "never", medians, shares, per-customer averages and relative dates like "last month" are declined (0 of 8 such questions answered in the eval sets). Top-N on a time dimension is not supported.
+- **The pipeline sample has no held-out set.** Its 40 questions were used to tune its semantic layer, so "30 of 30" is a regression check, not an accuracy estimate; the benchmark numbers above are for the shop only. Its attribution is original source only (no multi-touch), and Claude mode was not run on it.
 - **The eval sets are small and written by one person** (42 in-sample, 17 held-out). The in-sample numbers are optimistic because the engine was tuned on them.
 - **Claude mode was not re-measured** for this version (paid API). Its execution accuracy on the eval sets and its behaviour under the red team are not measured; the only Claude numbers are from the 8 example questions on 2026-10-28.
 - **Not verified here:** the Docker image, docker compose and the CI workflow (Docker is not installed on the machine where this was built), and the Azure deployment for this version.

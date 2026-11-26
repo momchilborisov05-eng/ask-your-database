@@ -63,7 +63,7 @@
     <div class="banner" role="alert">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
       {% if demo %}
-      <span>Offline mode: no API key, so a built-in template engine writes the SQL (metric by dimension questions: revenue, orders, units, customers, return rate, profit, by category, city, channel or month). The static check, the queries, table, chart, history and dashboard are real.</span>
+      <span>Offline mode: no API key, so a built-in template engine writes the SQL (metric by dimension questions: {% if offline_topics %}{{ offline_topics }}{% else %}revenue, orders, units, customers, return rate, profit, by category, city, channel or month{% endif %}). The static check, the queries, table, chart, history and dashboard are real.</span>
       {% else %}
       <span>AI is off: set <code>ANTHROPIC_API_KEY</code> and restart. The dashboard still works.</span>
       {% endif %}
@@ -75,7 +75,7 @@
       <form id="ask-form" class="ask-form">
         <div class="input-wrap">
           <svg class="input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z"/></svg>
-          <input id="question" placeholder="e.g. Which products sold best last month?" maxlength="500" autocomplete="off" required aria-label="Your question">
+          <input id="question" placeholder="{{ page.placeholder or 'e.g. Which products sold best last month?' }}" maxlength="500" autocomplete="off" required aria-label="Your question">
         </div>
         <button type="submit" id="ask-btn" class="btn btn-primary">Ask</button>
       </form>
@@ -151,7 +151,7 @@
       <div class="card panel" data-key="top_products"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="table-wrap"></div><pre class="sql" hidden></pre></div>
       <div class="card panel wide" data-key="cities"><div class="panel-head"><h3></h3><button class="sql-toggle" type="button">SQL</button></div><div class="chart-box"><canvas id="cities-chart"></canvas></div><pre class="sql" hidden></pre></div>
     </section>
-    <p class="muted footnote" id="footnote">Sample data: a fictional online shop in Bulgaria (800 customers, 3,140 orders, May 2025 – October 2026).</p>
+    <p class="muted footnote" id="footnote">{{ page.footnote or 'Sample data: a fictional online shop in Bulgaria (800 customers, 3,140 orders, May 2025 – October 2026).' }}</p>
   </main>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>

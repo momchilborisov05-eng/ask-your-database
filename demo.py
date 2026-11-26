@@ -76,10 +76,12 @@ FROM customers WHERE signed_up >= '2026-01-01' GROUP BY month ORDER BY month""")
 
 
 class DemoClient:
-    """engine: an sqlkit OfflineEngine for questions beyond the examples (None: examples only)."""
+    """engine: an sqlkit OfflineEngine for questions beyond the examples (None: examples only).
+    plans: answers written in advance for another sample database, in the shape of PLANS."""
 
-    def __init__(self, engine=None):
+    def __init__(self, engine=None, plans=None):
         self.engine = engine
+        self.plans = {**PLANS, **(plans or {})}
         self.beta = self
         self.messages = self
 
@@ -89,7 +91,7 @@ class DemoClient:
         if "answer" in properties:
             return _message({"answer": _summary(prompt)})
         question = prompt.split("Question:", 1)[-1].strip()
-        plan = PLANS.get(question)
+        plan = self.plans.get(question)
         if plan:
             chart, x, y, sql = plan
             return _message({"can_answer": True, "sql": sql.strip(), "chart": {"type": chart, "x": x, "y": y},

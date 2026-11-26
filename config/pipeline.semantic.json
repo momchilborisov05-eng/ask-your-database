@@ -1,0 +1,171 @@
+{
+  "_about": "Semantic layer for the B2B pipeline sample (seed_pipeline.py): marketing and sales metrics over ad spend, GA4 sessions and CRM leads and deals. Definitions follow config/pipeline.md. Each fact table (deals, contacts, ad_spend, ga4_sessions) has its own metrics; 'only_with' stops the offline engine from joining two fact tables, which would count rows twice.",
+  "aliases": {"channels": "ch", "campaigns": "ca", "ad_spend": "sp", "ga4_sessions": "s", "accounts": "a", "contacts": "c", "deals": "d"},
+  "default_time": "d.created_at",
+  "default_metric": "pipeline",
+  "page": {
+    "placeholder": "e.g. Which channel brought the most pipeline last quarter?",
+    "footnote": "Sample data: the marketing and sales pipeline of a fictional B2B SaaS company (ad spend, GA4 sessions, 500 accounts, 6,323 contacts, 603 deals, May 2025 – October 2026)."
+  },
+  "strict_metrics": true,
+  "filter_columns": ["channels.name", "channels.kind", "campaigns.name", "deals.stage", "deals.owner", "accounts.segment", "accounts.industry", "accounts.country", "ga4_sessions.device", "contacts.job_title"],
+  "metrics": {
+    "pipeline": {
+      "sql": "ROUND(SUM(d.amount_eur), 2)", "alias": "pipeline_eur", "tables": ["deals"], "label": "pipeline created",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["pipeline", "pipeline created", "pipeline generated", "sourced pipeline", "pipeline value", "opportunity value"]
+    },
+    "deals": {
+      "sql": "COUNT(DISTINCT d.id)", "alias": "deals", "tables": ["deals"], "label": "number of deals (Stage 1 opportunities)",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["deals", "opportunities", "opps", "number of deals", "how many deals", "number of opportunities", "how many opportunities", "stage 1", "stage 1 opportunities", "stage 1 deals", "deals created", "opportunities created"],
+      "weak": ["deals", "opportunities", "opps"]
+    },
+    "open_pipeline": {
+      "sql": "ROUND(SUM(d.amount_eur), 2)", "alias": "open_pipeline_eur", "tables": ["deals"], "label": "open pipeline",
+      "where": "d.stage NOT IN ('closed_won', 'closed_lost')",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["open pipeline", "active pipeline", "pipeline still open", "open deal value"]
+    },
+    "won_revenue": {
+      "sql": "ROUND(SUM(d.amount_eur), 2)", "alias": "won_revenue_eur", "tables": ["deals"], "label": "won revenue",
+      "where": "d.stage = 'closed_won'", "time": "d.closed_at",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["won revenue", "revenue", "closed won revenue", "revenue won", "bookings", "new arr", "closed revenue", "new business revenue"]
+    },
+    "won_deals": {
+      "sql": "COUNT(DISTINCT d.id)", "alias": "won_deals", "tables": ["deals"], "label": "deals won",
+      "where": "d.stage = 'closed_won'", "time": "d.closed_at",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["won deals", "deals won", "closed won deals", "wins", "new customers", "customers won", "new logos", "deals did we win", "deals have we won", "deals we won", "did we win", "did we close", "deals closed won"]
+    },
+    "avg_deal": {
+      "sql": "ROUND(AVG(d.amount_eur), 2)", "alias": "avg_deal_eur", "tables": ["deals"], "label": "average won deal size",
+      "where": "d.stage = 'closed_won'", "time": "d.closed_at",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["average deal size", "avg deal size", "average deal", "deal size", "average contract value", "acv"]
+    },
+    "sales_cycle": {
+      "sql": "ROUND(AVG(julianday(d.closed_at) - julianday(d.created_at)), 1)", "alias": "sales_cycle_days", "tables": ["deals"],
+      "label": "sales cycle (days, won deals)", "where": "d.stage = 'closed_won'", "time": "d.closed_at",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["sales cycle", "sales cycle length", "days to close", "time to close", "deal velocity"]
+    },
+    "win_rate": {
+      "sql": "ROUND(100.0 * SUM(d.stage = 'closed_won') / COUNT(*), 1)", "alias": "win_rate_pct", "tables": ["deals"],
+      "label": "win rate (%)", "where": "d.stage IN ('closed_won', 'closed_lost')", "time": "d.closed_at",
+      "only_with": ["deals", "accounts", "channels", "campaigns", "contacts"],
+      "words": ["win rate", "win rates", "close rate", "closing rate", "share of deals won"]
+    },
+    "leads": {
+      "sql": "COUNT(DISTINCT c.id)", "alias": "leads", "tables": ["contacts"], "label": "new leads", "time": "c.created_at",
+      "only_with": ["contacts", "accounts", "channels", "campaigns"],
+      "words": ["leads", "new leads", "number of leads", "how many leads", "contacts", "new contacts", "lead volume"],
+      "weak": ["contacts"]
+    },
+    "mqls": {
+      "sql": "COUNT(DISTINCT c.id)", "alias": "mqls", "tables": ["contacts"], "label": "MQLs",
+      "where": "c.mql_at IS NOT NULL", "time": "c.mql_at",
+      "only_with": ["contacts", "accounts", "channels", "campaigns"],
+      "words": ["mqls", "mql", "marketing qualified leads", "qualified leads"]
+    },
+    "mql_rate": {
+      "sql": "ROUND(100.0 * SUM(c.mql_at IS NOT NULL) / COUNT(*), 1)", "alias": "mql_rate_pct", "tables": ["contacts"],
+      "label": "lead to MQL rate (%)", "time": "c.created_at",
+      "only_with": ["contacts", "accounts", "channels", "campaigns"],
+      "words": ["mql rate", "lead to mql rate", "lead to mql conversion", "lead to mql", "qualification rate", "lead quality"]
+    },
+    "spend": {
+      "sql": "ROUND(SUM(sp.cost_eur), 2)", "alias": "spend_eur", "tables": ["ad_spend"], "label": "ad spend", "time": "sp.spend_date",
+      "only_with": ["ad_spend", "campaigns", "channels"],
+      "words": ["spend", "ad spend", "media spend", "advertising spend", "spent", "cost", "costs", "budget", "ad cost"]
+    },
+    "impressions": {
+      "sql": "SUM(sp.impressions)", "alias": "impressions", "tables": ["ad_spend"], "label": "impressions", "time": "sp.spend_date",
+      "only_with": ["ad_spend", "campaigns", "channels"],
+      "words": ["impressions", "ad impressions", "reach"]
+    },
+    "clicks": {
+      "sql": "SUM(sp.clicks)", "alias": "clicks", "tables": ["ad_spend"], "label": "ad clicks", "time": "sp.spend_date",
+      "only_with": ["ad_spend", "campaigns", "channels"],
+      "words": ["clicks", "ad clicks"]
+    },
+    "ctr": {
+      "sql": "ROUND(100.0 * SUM(sp.clicks) / SUM(sp.impressions), 2)", "alias": "ctr_pct", "tables": ["ad_spend"],
+      "label": "click-through rate (%)", "time": "sp.spend_date", "only_with": ["ad_spend", "campaigns", "channels"],
+      "words": ["ctr", "click through rate", "clickthrough rate"]
+    },
+    "cpc": {
+      "sql": "ROUND(SUM(sp.cost_eur) / SUM(sp.clicks), 2)", "alias": "cpc_eur", "tables": ["ad_spend"],
+      "label": "cost per click", "time": "sp.spend_date", "only_with": ["ad_spend", "campaigns", "channels"],
+      "words": ["cpc", "cost per click"]
+    },
+    "sessions": {
+      "sql": "SUM(s.sessions)", "alias": "sessions", "tables": ["ga4_sessions"], "label": "website sessions", "time": "s.session_date",
+      "only_with": ["ga4_sessions", "channels"],
+      "words": ["sessions", "website sessions", "web sessions", "traffic", "website traffic", "visits"]
+    },
+    "conversions": {
+      "sql": "SUM(s.conversions)", "alias": "conversions", "tables": ["ga4_sessions"], "label": "website conversions",
+      "time": "s.session_date", "only_with": ["ga4_sessions", "channels"],
+      "words": ["conversions", "website conversions", "form fills", "form submissions", "demo requests"]
+    },
+    "conversion_rate": {
+      "sql": "ROUND(100.0 * SUM(s.conversions) / SUM(s.sessions), 2)", "alias": "conversion_rate_pct", "tables": ["ga4_sessions"],
+      "label": "session conversion rate (%)", "time": "s.session_date", "only_with": ["ga4_sessions", "channels"],
+      "words": ["conversion rate", "website conversion rate", "session conversion rate", "cvr"]
+    },
+    "engagement_rate": {
+      "sql": "ROUND(100.0 * SUM(s.engaged_sessions) / SUM(s.sessions), 1)", "alias": "engagement_rate_pct", "tables": ["ga4_sessions"],
+      "label": "engagement rate (%)", "time": "s.session_date", "only_with": ["ga4_sessions", "channels"],
+      "words": ["engagement rate", "engaged share", "share of engaged sessions"]
+    },
+    "accounts": {
+      "sql": "COUNT(DISTINCT a.id)", "alias": "accounts", "tables": ["accounts"], "label": "number of accounts",
+      "only_with": ["accounts"],
+      "words": ["how many accounts", "number of accounts", "how many companies", "number of companies", "account count"]
+    }
+  },
+  "dimensions": {
+    "channel": {"sql": "ch.name", "alias": "channel", "tables": ["channels"], "words": ["channel", "channels", "source", "sources", "original source", "marketing channel", "marketing channels", "traffic source"]},
+    "channel_type": {"sql": "ch.kind", "alias": "channel_type", "tables": ["channels"], "words": ["channel type", "channel types", "channel kind", "paid or organic", "paid and organic"]},
+    "campaign": {"sql": "ca.name", "alias": "campaign", "tables": ["campaigns"], "group": "ca.id", "words": ["campaign", "campaigns"]},
+    "stage": {"sql": "d.stage", "alias": "stage", "tables": ["deals"], "words": ["stage", "stages", "deal stage", "pipeline stage", "funnel stage"]},
+    "owner": {"sql": "d.owner", "alias": "owner", "tables": ["deals"], "words": ["owner", "owners", "rep", "reps", "sales rep", "sales reps", "account executive", "account executives", "salesperson"]},
+    "segment": {"sql": "a.segment", "alias": "segment", "tables": ["accounts"], "words": ["segment", "segments", "company size", "account segment"]},
+    "industry": {"sql": "a.industry", "alias": "industry", "tables": ["accounts"], "words": ["industry", "industries", "vertical", "verticals"]},
+    "country": {"sql": "a.country", "alias": "country", "tables": ["accounts"], "words": ["country", "countries", "geography", "region", "regions"]},
+    "account": {"sql": "a.name", "alias": "account", "tables": ["accounts"], "group": "a.id", "words": ["account", "accounts", "company", "companies"]},
+    "job_title": {"sql": "c.job_title", "alias": "job_title", "tables": ["contacts"], "words": ["job title", "job titles", "title", "titles", "persona", "personas", "role", "roles"]},
+    "device": {"sql": "s.device", "alias": "device", "tables": ["ga4_sessions"], "words": ["device", "devices", "device category"]},
+    "month": {"time": "%Y-%m", "alias": "month", "words": ["month", "months", "monthly", "per month", "each month", "every month", "month by month", "over time", "trend"]},
+    "year": {"time": "%Y", "alias": "year", "words": ["year", "years", "yearly", "annual", "annually", "per year", "each year"]}
+  },
+  "value_aliases": {
+    "channels.name": {"linkedin": "LinkedIn Ads", "google": "Google Ads", "adwords": "Google Ads", "paid search": "Google Ads", "meta": "Meta Ads", "facebook": "Meta Ads", "6sense": "6sense ABM", "abm": "6sense ABM", "seo": "Organic Search"},
+    "channels.kind": {"unpaid": "organic", "non paid": "organic", "paid channels": "paid", "paid media": "paid", "paid sources": "paid", "organic channels": "organic", "organic sources": "organic"},
+    "deals.stage": {"won": "closed_won", "lost": "closed_lost"},
+    "accounts.segment": {"midmarket": "Mid-Market", "small business": "SMB", "small businesses": "SMB"},
+    "accounts.country": {"uk": "United Kingdom", "britain": "United Kingdom", "usa": "United States", "america": "United States", "holland": "Netherlands"},
+    "ga4_sessions.device": {"phone": "mobile", "smartphone": "mobile", "computer": "desktop"}
+  },
+  "unsupported": ["both", "never", "without", "didn't", "did not", "compare", "compared", " vs ", "versus", "growth", "grew", "increase", "decrease", "change", "share of pipeline", "percent of", "percentage of", "median", "second highest", "second best", "second most", "last month", "this month", "this year", "last year", "last quarter", "this quarter", "yesterday", "today", "this week", "last week", "more than", "fewer than", "less than", "greater than", "at least", "per account", "per rep", "week", "weekday", "day of", "ratio", "difference", "cumulative", "running total", "cost per lead", "cost per mql", "cost per opportunity", "cost per deal", "cost per acquisition", "cpl", "cac", "roas", "roi", "return on", "per euro", "payback", "funnel", "attribution", "forecast", "stuck", "older than"],
+  "examples": [
+    "Which channel brought the most pipeline in Q3 2026?",
+    "Monthly pipeline from LinkedIn",
+    "Win rate by segment",
+    "Top 5 campaigns by won revenue",
+    "MQL rate by channel",
+    "Ad spend by channel in 2026",
+    {
+      "question": "Which paid channel returns the most pipeline per euro of ad spend?",
+      "chart": {"type": "bar", "x": "channel", "y": "pipeline_per_eur"},
+      "sql": "WITH spend AS (\n    SELECT ca.channel_id, SUM(sp.cost_eur) AS spend_eur\n    FROM ad_spend sp JOIN campaigns ca ON ca.id = sp.campaign_id\n    GROUP BY ca.channel_id\n), pipeline AS (\n    SELECT d.channel_id, COUNT(*) AS deals, SUM(d.amount_eur) AS pipeline_eur\n    FROM deals d\n    GROUP BY d.channel_id\n)\nSELECT ch.name AS channel,\n       ROUND(s.spend_eur, 2) AS spend_eur,\n       p.deals,\n       ROUND(p.pipeline_eur, 2) AS pipeline_eur,\n       ROUND(s.spend_eur / p.deals, 2) AS cost_per_opportunity_eur,\n       ROUND(p.pipeline_eur / s.spend_eur, 1) AS pipeline_per_eur\nFROM spend s\nJOIN pipeline p ON p.channel_id = s.channel_id\nJOIN channels ch ON ch.id = s.channel_id\nORDER BY pipeline_per_eur DESC"
+    },
+    {
+      "question": "Show the funnel from lead to MQL to deal to won, by channel",
+      "chart": {"type": "bar", "x": "channel", "y": "lead_to_won_pct"},
+      "sql": "WITH leads AS (\n    SELECT channel_id, COUNT(*) AS leads, SUM(mql_at IS NOT NULL) AS mqls\n    FROM contacts\n    GROUP BY channel_id\n), opps AS (\n    SELECT channel_id, COUNT(*) AS deals, SUM(stage = 'closed_won') AS won\n    FROM deals\n    GROUP BY channel_id\n)\nSELECT ch.name AS channel, l.leads, l.mqls, o.deals, o.won,\n       ROUND(100.0 * l.mqls / l.leads, 1) AS lead_to_mql_pct,\n       ROUND(100.0 * o.deals / l.mqls, 1) AS mql_to_deal_pct,\n       ROUND(100.0 * o.won / l.leads, 2) AS lead_to_won_pct\nFROM leads l\nJOIN opps o ON o.channel_id = l.channel_id\nJOIN channels ch ON ch.id = l.channel_id\nORDER BY lead_to_won_pct DESC"
+    }
+  ]
+}

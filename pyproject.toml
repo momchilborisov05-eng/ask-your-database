@@ -17,10 +17,11 @@ ignore = ["B905"]
 [tool.ruff.lint.per-file-ignores]
 # The sample catalog and test queries read better on one line.
 "seed_db.py" = ["E501"]
+"seed_pipeline.py" = ["E501"]
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "assistant", "dashboard", "demo", "safe_sql", "seed_db", "sqlkit", "store", "test_app"]
+known-first-party = ["app", "assistant", "dashboard", "demo", "safe_sql", "seed_db", "seed_pipeline", "sqlkit", "store", "test_app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
